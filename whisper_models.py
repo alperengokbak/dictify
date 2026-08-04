@@ -1,16 +1,18 @@
 from pathlib import Path
 from typing import Callable, Optional
 
+import uuid
+
 import requests
 
-MODEL_SIZE_ORDER = ["tiny", "base", "small", "medium", "large"]
+MODEL_SIZE_ORDER = ["tiny", "base", "small", "medium", "large-v3"]
 
 MODEL_LABELS = {
     "tiny": "Tiny (75 MB)",
     "base": "Base (142 MB)",
     "small": "Small (466 MB)",
     "medium": "Medium (1.5 GB)",
-    "large": "Large (2.9 GB)",
+    "large-v3": "Large (2.9 GB)",
 }
 
 _MODEL_URL_TEMPLATE = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{size}.bin"
@@ -56,7 +58,7 @@ def download_model(
     get = _get or requests.get
     dest = model_path_for_size(size, models_dir)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    part_path = dest.with_suffix(dest.suffix + ".part")
+    part_path = dest.with_suffix(dest.suffix + f".{uuid.uuid4().hex}.part")
 
     try:
         response = get(_MODEL_URL_TEMPLATE.format(size=size), stream=True, timeout=30)
@@ -68,6 +70,8 @@ def download_model(
                 f.write(chunk)
                 downloaded += len(chunk)
                 on_progress(downloaded, total)
+        if total and downloaded != total:
+            raise OSError(f"truncated download: got {downloaded} of {total} bytes")
         part_path.rename(dest)
         return dest
     except Exception as exc:

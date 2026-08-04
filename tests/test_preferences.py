@@ -5,6 +5,7 @@ from AppKit import (
     NSEventModifierFlagShift,
 )
 
+import config
 import hotkey
 import preferences
 import whisper_models
@@ -133,10 +134,23 @@ def _controller_with_window(config=None):
     return controller
 
 
-def test_transcription_section_preselects_known_model_size():
-    controller = _controller_with_window({"whisper_model_path": "/x/models/ggml-small.bin"})
+def test_transcription_section_preselects_known_model_size(tmp_path, monkeypatch):
+    monkeypatch.setattr(preferences, "CONFIG_DIR", tmp_path)
+    (tmp_path / "models").mkdir()
+    (tmp_path / "models" / "ggml-small.bin").write_bytes(b"fake")
+
+    controller = _controller_with_window({"whisper_model_path": str(tmp_path / "models" / "ggml-small.bin")})
     assert controller.model_popup.indexOfSelectedItem() == whisper_models.MODEL_SIZE_ORDER.index("small")
     assert controller.model_status_label.stringValue() == "Ready"
+    assert controller._last_confirmed_model_index == whisper_models.MODEL_SIZE_ORDER.index("small")
+
+
+def test_transcription_section_known_size_not_downloaded_yet(tmp_path, monkeypatch):
+    monkeypatch.setattr(preferences, "CONFIG_DIR", tmp_path)
+
+    controller = _controller_with_window({"whisper_model_path": "/x/models/ggml-small.bin"})
+    assert controller.model_popup.indexOfSelectedItem() == whisper_models.MODEL_SIZE_ORDER.index("small")
+    assert controller.model_status_label.stringValue() == "Not downloaded yet"
     assert controller._last_confirmed_model_index == whisper_models.MODEL_SIZE_ORDER.index("small")
 
 
@@ -165,10 +179,10 @@ def test_on_model_download_succeeded_updates_state():
     controller = _controller_with_window({"whisper_model_path": "/x/models/ggml-medium.bin"})
     controller._set_model_downloading_ui(True)
 
-    controller._on_model_download_succeeded("large", whisper_models.MODEL_SIZE_ORDER.index("large"))
+    controller._on_model_download_succeeded("large-v3", whisper_models.MODEL_SIZE_ORDER.index("large-v3"))
 
-    assert controller._pending_model_size == "large"
-    assert controller._last_confirmed_model_index == whisper_models.MODEL_SIZE_ORDER.index("large")
+    assert controller._pending_model_size == "large-v3"
+    assert controller._last_confirmed_model_index == whisper_models.MODEL_SIZE_ORDER.index("large-v3")
     assert controller.model_status_label.stringValue() == "Ready"
     assert controller.model_progress.isHidden()
     assert controller.model_popup.isEnabled()
@@ -176,7 +190,7 @@ def test_on_model_download_succeeded_updates_state():
 
 def test_on_model_download_failed_reverts_selection():
     controller = _controller_with_window({"whisper_model_path": "/x/models/ggml-medium.bin"})
-    controller.model_popup.selectItemAtIndex_(whisper_models.MODEL_SIZE_ORDER.index("large"))
+    controller.model_popup.selectItemAtIndex_(whisper_models.MODEL_SIZE_ORDER.index("large-v3"))
     controller._set_model_downloading_ui(True)
 
     controller._on_model_download_failed("network error")
@@ -188,7 +202,7 @@ def test_on_model_download_failed_reverts_selection():
 
 def test_on_model_download_failed_is_noop_after_window_closed():
     controller = _controller_with_window({"whisper_model_path": "/x/models/ggml-medium.bin"})
-    controller.model_popup.selectItemAtIndex_(whisper_models.MODEL_SIZE_ORDER.index("large"))
+    controller.model_popup.selectItemAtIndex_(whisper_models.MODEL_SIZE_ORDER.index("large-v3"))
     controller._set_model_downloading_ui(True)
     controller._is_closed = True
 
@@ -196,59 +210,27 @@ def test_on_model_download_failed_is_noop_after_window_closed():
 
     # Selection must NOT have been reverted to the pre-download index (medium):
     # the callback should have returned immediately without touching torn-down UI.
-    assert controller.model_popup.indexOfSelectedItem() == whisper_models.MODEL_SIZE_ORDER.index("large")
+    assert controller.model_popup.indexOfSelectedItem() == whisper_models.MODEL_SIZE_ORDER.index("large-v3")
 
 
-class _SyncThread:
-    """Stand-in for threading.Thread that runs its target immediately, on the
-    calling thread, instead of spawning a real one - so tests exercising the
-    on_progress closure are deterministic and don't race a background thread
-    or a real AppKit run loop."""
-
-    def __init__(self, target=None, daemon=None):
-        self._target = target
-
-    def start(self):
-        if self._target is not None:
-            self._target()
-
-
-class _SyncAppHelper:
-    @staticmethod
-    def callAfter(fn, *args):
-        fn(*args)
-
-
-def test_on_progress_is_noop_after_window_closed(monkeypatch):
-    # Route modelSizeChanged_'s background download through fakes that run
-    # synchronously: threading.Thread.start() runs the worker inline, and
-    # AppHelper.callAfter invokes its callback inline. This lets the test
-    # simulate the window closing *during* the download (mid-progress) and
-    # deterministically observe whether on_progress's guard held.
-    monkeypatch.setattr(preferences, "threading", type("_M", (), {"Thread": _SyncThread}))
-    monkeypatch.setattr(preferences, "AppHelper", _SyncAppHelper)
-
+def test_on_progress_is_noop_after_window_closed():
+    # _on_model_download_progress is the main-thread handler on_progress
+    # schedules via AppHelper.callAfter; its _is_closed guard is what
+    # actually matters (on_progress itself no longer checks it, since that
+    # check used to run on the background thread instead of the main one).
     controller = _controller_with_window({"whisper_model_path": "/x/models/ggml-medium.bin"})
+    controller._is_closed = True
 
-    def fake_download_model(size, models_dir, on_progress):
-        # Simulate the window closing mid-download, then a progress tick
-        # arriving afterwards - exactly the race the guard protects against.
-        controller._is_closed = True
-        on_progress(50, 100)
-        return models_dir / f"ggml-{size}.bin"
+    controller._on_model_download_progress(50)
 
-    monkeypatch.setattr(whisper_models, "download_model", fake_download_model)
-
-    controller.model_popup.selectItemAtIndex_(whisper_models.MODEL_SIZE_ORDER.index("large"))
-    controller.modelSizeChanged_(None)
-
-    # modelSizeChanged_ itself resets the bar to 0 before the download starts;
-    # if on_progress's guard didn't hold, the fake's on_progress(50, 100) call
-    # would have pushed it to 50.
     assert controller.model_progress.doubleValue() == 0.0
 
 
-def test_save_writes_pending_model_size_into_config():
+def test_save_writes_pending_model_size_into_config(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(preferences, "CONFIG_DIR", tmp_path)
+
     controller = _controller_with_window({"whisper_model_path": "/x/models/ggml-medium.bin"})
     controller._pending_model_size = "small"
     controller.hotkey_field.setStringValue_("")
@@ -259,5 +241,5 @@ def test_save_writes_pending_model_size_into_config():
 
     controller.save_(None)
 
-    expected = str(whisper_models.model_path_for_size("small", preferences.CONFIG_DIR / "models"))
+    expected = str(whisper_models.model_path_for_size("small", tmp_path / "models"))
     assert controller.config["whisper_model_path"] == expected

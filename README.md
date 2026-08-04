@@ -59,7 +59,7 @@ To remove it entirely: `launchctl bootout gui/$(id -u)/local.dictify && rm ~/Lib
 
 ## Configuration
 
-Settings live in `~/.config/dictify/config.json` and are created with defaults on first run. Most of them can be edited from the menu bar's **Preferences...** window (hotkey, glossary, silence thresholds, history limit, cleanup/history toggles) instead of hand-editing the file.
+Settings live in `~/.config/dictify/config.json` and are created with defaults on first run. Most of them can be edited from the menu bar's **Preferences...** window (hotkey, Whisper model size, glossary, silence thresholds, history limit, cleanup/history toggles) instead of hand-editing the file.
 
 ### Hotkey
 

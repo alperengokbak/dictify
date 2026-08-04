@@ -127,6 +127,8 @@ class PreferencesWindowController(NSObject):
         self.on_save = on_save
         self._capture_monitor = None
         self._is_closed = False
+        self._pending_model_size = None
+        self._last_confirmed_model_index = -1
         self._build_window()
         return self
 
@@ -199,11 +201,16 @@ class PreferencesWindowController(NSObject):
         current_path = Path(self.config.get("whisper_model_path", ""))
         current_size = whisper_models.size_from_path(current_path)
         self._pending_model_size = None
-        if current_size is not None:
+        if current_size is not None and whisper_models.is_downloaded(current_size, models_dir):
             index = whisper_models.MODEL_SIZE_ORDER.index(current_size)
             self.model_popup.selectItemAtIndex_(index)
             self._last_confirmed_model_index = index
             status_text = "Ready"
+        elif current_size is not None:
+            index = whisper_models.MODEL_SIZE_ORDER.index(current_size)
+            self.model_popup.selectItemAtIndex_(index)
+            self._last_confirmed_model_index = index
+            status_text = "Not downloaded yet"
         else:
             self.model_popup.selectItem_(None)
             self._last_confirmed_model_index = -1
@@ -335,6 +342,7 @@ class PreferencesWindowController(NSObject):
             rect, style, NSBackingStoreBuffered, False
         )
         self.window.setTitle_("Dictify Preferences")
+        self.window.setDelegate_(self)
         content = self.window.contentView()
 
         y = total_height - MARGIN
@@ -420,10 +428,8 @@ class PreferencesWindowController(NSObject):
         self.model_progress.setDoubleValue_(0)
 
         def on_progress(downloaded, total):
-            if self._is_closed:
-                return
             percent = (downloaded * 100 / total) if total else 0
-            AppHelper.callAfter(self.model_progress.setDoubleValue_, percent)
+            AppHelper.callAfter(self._on_model_download_progress, percent)
 
         def worker():
             try:
@@ -434,6 +440,12 @@ class PreferencesWindowController(NSObject):
                 AppHelper.callAfter(self._on_model_download_succeeded, size, index)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    @objc.python_method
+    def _on_model_download_progress(self, percent):
+        if self._is_closed:
+            return
+        self.model_progress.setDoubleValue_(percent)
 
     @objc.python_method
     def _on_model_download_succeeded(self, size, index):
@@ -452,6 +464,7 @@ class PreferencesWindowController(NSObject):
             self.model_popup.selectItemAtIndex_(self._last_confirmed_model_index)
         else:
             self.model_popup.selectItem_(None)
+        self.model_status_label.setStringValue_("Download failed")
         self._set_model_downloading_ui(False)
         try:
             rumps.notification("Dictify", "Model download failed", message)
@@ -532,3 +545,6 @@ class PreferencesWindowController(NSObject):
         self._is_closed = True
         self._stop_hotkey_capture()
         self.window.close()
+
+    def windowWillClose_(self, notification):
+        self._is_closed = True

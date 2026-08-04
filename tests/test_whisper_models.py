@@ -58,7 +58,7 @@ def test_download_model_success_writes_file_and_reports_progress(tmp_path):
 
     assert result == tmp_path / "ggml-tiny.bin"
     assert result.read_bytes() == b"a" * 10 + b"b" * 10 + b"c" * 5
-    assert not (tmp_path / "ggml-tiny.bin.part").exists()
+    assert not list(tmp_path.glob("ggml-tiny.bin.*.part"))
     assert progress_calls == [(10, total), (20, total), (25, total)]
 
 
@@ -70,7 +70,7 @@ def test_download_model_http_error_cleans_up_and_raises(tmp_path):
         whisper_models.download_model("tiny", tmp_path, lambda d, t: None, _get=fake_get)
 
     assert not (tmp_path / "ggml-tiny.bin").exists()
-    assert not (tmp_path / "ggml-tiny.bin.part").exists()
+    assert not list(tmp_path.glob("ggml-tiny.bin.*.part"))
 
 
 def test_download_model_exception_mid_stream_cleans_up_and_raises(tmp_path):
@@ -89,7 +89,7 @@ def test_download_model_exception_mid_stream_cleans_up_and_raises(tmp_path):
         whisper_models.download_model("tiny", tmp_path, lambda d, t: None, _get=fake_get)
 
     assert not (tmp_path / "ggml-tiny.bin").exists()
-    assert not (tmp_path / "ggml-tiny.bin.part").exists()
+    assert not list(tmp_path.glob("ggml-tiny.bin.*.part"))
 
 
 def test_download_model_unknown_size_raises_value_error(tmp_path):
