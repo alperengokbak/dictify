@@ -15,6 +15,7 @@ from hotkey import HotkeyListener
 from paste import copy_to_clipboard, paste_into_frontmost_app
 from preferences import PreferencesWindowController
 from transcribe import TranscribeError, transcribe
+from waveform import WaveformWindowController
 
 IDLE_TITLE = "🎙"
 RECORDING_TITLE = "🔴"
@@ -41,7 +42,7 @@ RECORDING_MODE_LABELS = {
 
 class DictateApp(rumps.App):
     def __init__(self):
-        super().__init__("dictate-mac", title=IDLE_TITLE)
+        super().__init__("Dictify", title=IDLE_TITLE)
         self.config = load_config()
         self.state = "idle"
         self._stop_event = None
@@ -50,6 +51,7 @@ class DictateApp(rumps.App):
         self._option_items = {}
         self.hotkey = None
         self._preferences_controller = None
+        self.waveform = WaveformWindowController()
 
         language_menu = self._build_option_submenu("Language", "language", LANGUAGE_LABELS)
         style_menu = self._build_option_submenu("Style", "style", STYLE_LABELS)
@@ -96,7 +98,7 @@ class DictateApp(rumps.App):
                 final_text = clean_transcript(raw_text, self.config)
             except CleanupError as exc:
                 rumps.notification(
-                    "dictate-mac", "Cleanup failed, using raw transcript", str(exc)
+                    "Dictify", "Cleanup failed, using raw transcript", str(exc)
                 )
                 final_text = raw_text
         return final_text
@@ -133,18 +135,18 @@ class DictateApp(rumps.App):
             output_path = Path(input_path).with_suffix(".txt")
             output_path.write_text(final_text)
             subprocess.run(["open", str(output_path)])
-            rumps.notification("dictate-mac", "File transcribed", f"Saved to {output_path.name}")
+            rumps.notification("Dictify", "File transcribed", f"Saved to {output_path.name}")
 
             self._record_history(raw_text, final_text, language)
         except FileTranscribeError as exc:
-            rumps.notification("dictate-mac", "File transcription failed", str(exc))
+            rumps.notification("Dictify", "File transcription failed", str(exc))
         except Exception as exc:
-            rumps.notification("dictate-mac", "File transcription failed", str(exc))
+            rumps.notification("Dictify", "File transcription failed", str(exc))
 
     def _show_history(self, sender):
         entries = load_history()
         if not entries:
-            rumps.notification("dictate-mac", "History", "No dictations recorded yet.")
+            rumps.notification("Dictify", "History", "No dictations recorded yet.")
             return
 
         lines = []
@@ -156,13 +158,13 @@ class DictateApp(rumps.App):
             lines.append(entry.get("final_text", ""))
             lines.append("")
 
-        history_view_path = Path(tempfile.gettempdir()) / "dictate-mac-history.txt"
+        history_view_path = Path(tempfile.gettempdir()) / "dictify-history.txt"
         history_view_path.write_text("\n".join(lines))
         subprocess.run(["open", str(history_view_path)])
 
     def _clear_history(self, sender):
         clear_history()
-        rumps.notification("dictate-mac", "History", "Dictation history cleared.")
+        rumps.notification("Dictify", "History", "Dictation history cleared.")
 
     def _build_option_submenu(self, title, config_key, labels, on_change=None):
         items = {
@@ -232,13 +234,17 @@ class DictateApp(rumps.App):
         self.title = RECORDING_TITLE
         self._stop_event = threading.Event()
         self._samples = None
+        self.waveform.show()
 
         def run():
             try:
-                self._samples = record(self._stop_event, SAMPLE_RATE)
+                self._samples = record(
+                    self._stop_event, SAMPLE_RATE, on_chunk=self.waveform.push_level
+                )
             except Exception as exc:
                 self._samples = None
-                rumps.notification("dictate-mac", "Recording failed", str(exc))
+                rumps.notification("Dictify", "Recording failed", str(exc))
+                self.waveform.hide()
                 self.state = "idle"
                 self.title = IDLE_TITLE
 
@@ -248,6 +254,7 @@ class DictateApp(rumps.App):
     def _stop_recording(self):
         self.state = "processing"
         self.title = PROCESSING_TITLE
+        self.waveform.hide()
         self._stop_event.set()
         self._record_thread.join()
         threading.Thread(target=self._process_recording, args=(self._samples,)).start()
@@ -269,7 +276,7 @@ class DictateApp(rumps.App):
                 try:
                     raw_text, language = transcribe(wav_path, self.config)
                 except TranscribeError as exc:
-                    rumps.notification("dictate-mac", "Transcription failed", str(exc))
+                    rumps.notification("Dictify", "Transcription failed", str(exc))
                     return
 
             if not raw_text:
@@ -282,7 +289,7 @@ class DictateApp(rumps.App):
 
             self._record_history(raw_text, final_text, language)
         except Exception as exc:
-            rumps.notification("dictate-mac", "Dictation failed", str(exc))
+            rumps.notification("Dictify", "Dictation failed", str(exc))
         finally:
             self.state = "idle"
             self.title = IDLE_TITLE

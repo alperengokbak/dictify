@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-CONFIG_DIR = Path.home() / ".config" / "dictate-mac"
+CONFIG_DIR = Path.home() / ".config" / "dictify"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
 DEFAULT_CONFIG = {

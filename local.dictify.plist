@@ -3,14 +3,14 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>local.dictate-mac</string>
+    <string>local.dictify</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/alperengokbak/vsCode/general-question-for-claude/dictate-mac/.venv/bin/python</string>
-        <string>/Users/alperengokbak/vsCode/general-question-for-claude/dictate-mac/dictate.py</string>
+        <string>/Users/alperengokbak/vsCode/general-question-for-claude/dictify/.venv/bin/python</string>
+        <string>/Users/alperengokbak/vsCode/general-question-for-claude/dictify/dictate.py</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/alperengokbak/vsCode/general-question-for-claude/dictate-mac</string>
+    <string>/Users/alperengokbak/vsCode/general-question-for-claude/dictify</string>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -19,8 +19,8 @@
         <false/>
     </dict>
     <key>StandardOutPath</key>
-    <string>/Users/alperengokbak/Library/Logs/dictate-mac.log</string>
+    <string>/Users/alperengokbak/Library/Logs/dictify.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/alperengokbak/Library/Logs/dictate-mac.err.log</string>
+    <string>/Users/alperengokbak/Library/Logs/dictify.err.log</string>
 </dict>
 </plist>

@@ -42,11 +42,15 @@ def is_silent(
     return bool((peak - noise_floor) < rise_db)
 
 
-def record(stop_event: threading.Event, sample_rate: int = 16000) -> np.ndarray:
+def record(
+    stop_event: threading.Event, sample_rate: int = 16000, on_chunk=None
+) -> np.ndarray:
     chunks = []
 
     def callback(indata, frames, time_info, status):
         chunks.append(indata.copy())
+        if on_chunk is not None:
+            on_chunk(peak_dbfs(indata.flatten()))
 
     with sd.InputStream(
         samplerate=sample_rate, channels=1, dtype="float32", callback=callback

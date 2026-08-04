@@ -11,7 +11,7 @@ echo "==> Pulling local cleanup model (qwen2.5:3b)"
 ollama pull qwen2.5:3b
 
 echo "==> Downloading the Whisper medium multilingual model"
-MODEL_DIR="$HOME/.config/dictate-mac/models"
+MODEL_DIR="$HOME/.config/dictify/models"
 mkdir -p "$MODEL_DIR"
 MODEL_PATH="$MODEL_DIR/ggml-medium.bin"
 if [ ! -f "$MODEL_PATH" ]; then
@@ -27,4 +27,4 @@ python3 -m venv .venv
 ./.venv/bin/pip install --upgrade pip
 ./.venv/bin/pip install -r requirements.txt
 
-echo "==> Done. Run the app with: dictate-mac/.venv/bin/python dictate-mac/dictate.py"
+echo "==> Done. Run the app with: dictify/.venv/bin/python dictify/dictate.py"

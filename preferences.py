@@ -71,7 +71,7 @@ class PreferencesWindowController(NSObject):
         self.window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
             rect, style, NSBackingStoreBuffered, False
         )
-        self.window.setTitle_("dictate-mac Preferences")
+        self.window.setTitle_("Dictify Preferences")
         content = self.window.contentView()
 
         y = 440

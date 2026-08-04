@@ -2,7 +2,7 @@ import config as config_module
 
 
 def test_load_defaults_when_missing(tmp_path, monkeypatch):
-    cfg_dir = tmp_path / "dictate-mac"
+    cfg_dir = tmp_path / "dictify"
     monkeypatch.setattr(config_module, "CONFIG_DIR", cfg_dir)
     monkeypatch.setattr(config_module, "CONFIG_PATH", cfg_dir / "config.json")
 
@@ -13,7 +13,7 @@ def test_load_defaults_when_missing(tmp_path, monkeypatch):
 
 
 def test_save_and_reload_roundtrip(tmp_path, monkeypatch):
-    cfg_dir = tmp_path / "dictate-mac"
+    cfg_dir = tmp_path / "dictify"
     monkeypatch.setattr(config_module, "CONFIG_DIR", cfg_dir)
     monkeypatch.setattr(config_module, "CONFIG_PATH", cfg_dir / "config.json")
 
@@ -27,7 +27,7 @@ def test_save_and_reload_roundtrip(tmp_path, monkeypatch):
 
 
 def test_malformed_json_falls_back_to_defaults(tmp_path, monkeypatch):
-    cfg_dir = tmp_path / "dictate-mac"
+    cfg_dir = tmp_path / "dictify"
     cfg_dir.mkdir(parents=True)
     cfg_path = cfg_dir / "config.json"
     cfg_path.write_text("{not valid json")

@@ -1,4 +1,4 @@
-# dictate-mac
+# Dictify
 
 A macOS menu bar app for push-to-talk dictation in Turkish and English, fully on-device (Whisper for transcription, a local Ollama model for cleanup).
 
@@ -16,9 +16,9 @@ This installs `whisper-cpp`, `ollama`, and `portaudio` via Homebrew, starts the 
 .venv/bin/python dictate.py
 ```
 
-...or open `dictate-mac.app` (included in this repo, installed to `/Applications/dictate-mac.app` — findable via Spotlight/Launchpad like a normal app). It's a thin wrapper around the same venv + script, not a standalone bundle, so it still needs this repo and its `.venv` in place at their current path. It stays a menu-bar-only app either way (`LSUIElement` in its `Info.plist`) — no Dock icon, no Cmd+Tab entry, opening it just puts the 🎙 in the menu bar. It also refuses to launch a second copy if one (e.g. the LaunchAgent's) is already running.
+...or open `Dictify.app` (included in this repo, installed to `/Applications/Dictify.app` — findable via Spotlight/Launchpad like a normal app). It's a thin wrapper around the same venv + script, not a standalone bundle, so it still needs this repo and its `.venv` in place at their current path. It stays a menu-bar-only app either way (`LSUIElement` in its `Info.plist`) — no Dock icon, no Cmd+Tab entry, opening it just puts the 🎙 in the menu bar. It also refuses to launch a second copy if one (e.g. the LaunchAgent's) is already running.
 
-The app lives in the menu bar. Press the hotkey once to start recording, press it again to stop; the transcript is cleaned up and pasted into the frontmost app automatically.
+The app lives in the menu bar. Press the hotkey once to start recording, press it again to stop; the transcript is cleaned up and pasted into the frontmost app automatically. A small floating waveform indicator appears near the bottom of the screen while recording, showing your live voice level, and disappears the moment you stop — it doesn't steal keyboard focus from whatever you're dictating into.
 
 ## Required macOS permissions
 
@@ -29,29 +29,29 @@ Grant both under System Settings > Privacy & Security, for whichever terminal or
 
 ## Launch at login
 
-To have `dictate-mac` start automatically instead of running it by hand each time, install it as a per-user LaunchAgent:
+To have Dictify start automatically instead of running it by hand each time, install it as a per-user LaunchAgent:
 
 ```bash
-cp local.dictate-mac.plist ~/Library/LaunchAgents/
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.dictate-mac.plist
+cp local.dictify.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.dictify.plist
 ```
 
-(the plist's `ProgramArguments` paths need to match wherever you actually cloned this repo — edit it first if that differs from `/Users/alperengokbak/vsCode/general-question-for-claude/dictate-mac`)
+(the plist's `ProgramArguments` paths need to match wherever you actually cloned this repo — edit it first if that differs from `/Users/alperengokbak/vsCode/general-question-for-claude/dictify`)
 
-It restarts automatically if the app crashes (`KeepAlive` with `SuccessfulExit: false`), but not after you quit it deliberately via the menu bar's Quit item. Logs go to `~/Library/Logs/dictate-mac.log` and `.err.log`.
+It restarts automatically if the app crashes (`KeepAlive` with `SuccessfulExit: false`), but not after you quit it deliberately via the menu bar's Quit item. Logs go to `~/Library/Logs/dictify.log` and `.err.log`.
 
 Once loaded, it shows up in **System Settings → General → Login Items → Allow in the Background**, where you can toggle it on/off. That toggle is enable/disable only — to change what it actually runs, edit the plist and reload it:
 
 ```bash
-launchctl bootout gui/$(id -u)/local.dictate-mac
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.dictate-mac.plist
+launchctl bootout gui/$(id -u)/local.dictify
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.dictify.plist
 ```
 
-To remove it entirely: `launchctl bootout gui/$(id -u)/local.dictate-mac && rm ~/Library/LaunchAgents/local.dictate-mac.plist`.
+To remove it entirely: `launchctl bootout gui/$(id -u)/local.dictify && rm ~/Library/LaunchAgents/local.dictify.plist`.
 
 ## Configuration
 
-Settings live in `~/.config/dictate-mac/config.json` and are created with defaults on first run. Most of them can be edited from the menu bar's **Preferences...** window (hotkey, glossary, silence thresholds, history limit, cleanup/history toggles) instead of hand-editing the file.
+Settings live in `~/.config/dictify/config.json` and are created with defaults on first run. Most of them can be edited from the menu bar's **Preferences...** window (hotkey, glossary, silence thresholds, history limit, cleanup/history toggles) instead of hand-editing the file.
 
 ### Hotkey
 
@@ -77,7 +77,7 @@ It's used two ways: as a hint to Whisper during transcription, and as a referenc
 
 ### History
 
-Every dictation's raw and cleaned text, with timestamp/language/style, is logged locally to `~/.config/dictate-mac/history.jsonl` (on by default — `"history_enabled": false` in Preferences turns it off). "Show History" in the menu bar opens a readable, most-recent-first view; "Clear History" wipes it.
+Every dictation's raw and cleaned text, with timestamp/language/style, is logged locally to `~/.config/dictify/history.jsonl` (on by default — `"history_enabled": false` in Preferences turns it off). "Show History" in the menu bar opens a readable, most-recent-first view; "Clear History" wipes it.
 
 ### Transcribe File...
 
