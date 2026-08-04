@@ -1,3 +1,5 @@
+from typing import Optional
+
 import objc
 from AppKit import (
     NSApp,
@@ -29,6 +31,7 @@ from AppKit import (
 
 from PyObjCTools import AppHelper
 
+import hotkey
 from config import save_config
 
 WINDOW_WIDTH = 520
@@ -86,7 +89,25 @@ def _modifier_flags_to_combo(flags: int) -> str:
 def _combo_to_display_string(combo: str) -> str:
     if not combo:
         return ""
-    return "".join(_SYMBOL_MAP.get(part, part) for part in combo.split("+"))
+    parts = []
+    for part in combo.split("+"):
+        if part in _SYMBOL_MAP:
+            parts.append(_SYMBOL_MAP[part])
+        elif part.startswith("<") and part.endswith(">"):
+            parts.append(part[1:-1].upper())
+        else:
+            parts.append(part)
+    return "".join(parts)
+
+
+def _keydown_to_combo(keycode: int, modifier_flags: int) -> Optional[str]:
+    """Turn a captured keydown's virtual keycode + modifier flags into a
+    combo string, or None if the key isn't one of our supported tokens."""
+    key_token = hotkey.KEY_TOKEN_BY_VIRTUAL_KEY.get(keycode)
+    if key_token is None:
+        return None
+    modifier_tokens = [token for bit, token in _MODIFIER_ORDER if modifier_flags & bit]
+    return "+".join(modifier_tokens + [key_token])
 
 
 class PreferencesWindowController(NSObject):
@@ -95,7 +116,6 @@ class PreferencesWindowController(NSObject):
         self.config = config
         self.on_save = on_save
         self._capture_monitor = None
-        self._captured_flags = 0
         self._build_window()
         return self
 
@@ -143,7 +163,8 @@ class PreferencesWindowController(NSObject):
         content.addSubview_(self.capture_button)
 
         self._add_label(
-            content, "Modifier-only combos recommended (e.g. Control+Option).",
+            content, "Any modifier + key combo works (e.g. ⌃⌥⌘D). It's captured"
+            " system-wide and never reaches other apps.",
             NSMakeRect(0, 34, cw, 16), font_size=10,
         )
         return box
@@ -310,20 +331,6 @@ class PreferencesWindowController(NSObject):
         self.capture_button.setTitle_("Set Shortcut...")
         self.capture_button.setEnabled_(True)
 
-    @objc.python_method
-    def _process_capture_flags(self, flags):
-        """Feed one FlagsChanged reading in. Accumulates every modifier bit
-        seen while any modifier is held (not just the latest reading), so a
-        combo survives being released one key at a time instead of collapsing
-        to whatever's still held. Returns the finalized combo string once
-        everything has been released, else None."""
-        if flags:
-            self._captured_flags |= flags
-            return None
-        if self._captured_flags:
-            return _modifier_flags_to_combo(self._captured_flags)
-        return None
-
     def startHotkeyCapture_(self, sender):
         if self._capture_monitor is not None:
             # Already capturing - ignore a repeat click instead of installing
@@ -333,9 +340,8 @@ class PreferencesWindowController(NSObject):
             # silently swallowing every keystroke (in every field, even
             # after this window closes) for the rest of the process's life.
             return
-        self.capture_button.setTitle_("Press keys, then release...")
+        self.capture_button.setTitle_("Press a key combo...")
         self.capture_button.setEnabled_(False)
-        self._captured_flags = 0
 
         relevant_mask = (
             NSEventModifierFlagControl
@@ -345,21 +351,23 @@ class PreferencesWindowController(NSObject):
         )
 
         def handler(event):
-            if event.type() == NSEventTypeKeyDown:
-                # Only modifier-only combos are supported (see README: a
-                # non-consumed key leaks into whatever app is focused, same
-                # class of issue the global hotkey itself had to avoid).
-                # Swallow it here so it never reaches any app's text field.
-                self.capture_button.setTitle_("Modifier keys only - try again")
+            # A combo finalizes the moment a supported non-modifier key is
+            # pressed (with whatever modifiers are held at that instant) -
+            # FlagsChanged readings alone never finalize anything anymore.
+            # Every event handled here is consumed (returns None) so nothing
+            # - modifier or key - ever leaks into whatever app is focused.
+            if event.type() != NSEventTypeKeyDown:
                 return None
 
-            flags = event.modifierFlags() & relevant_mask
-            combo = self._process_capture_flags(flags)
-            if combo is not None:
-                self.hotkey_field.setStringValue_(combo)
-                self.hotkey_display_label.setStringValue_(_combo_to_display_string(combo))
-                self._stop_hotkey_capture()
-            return event
+            combo = _keydown_to_combo(event.keyCode(), event.modifierFlags() & relevant_mask)
+            if combo is None:
+                self.capture_button.setTitle_("Unsupported key - try again")
+                return None
+
+            self.hotkey_field.setStringValue_(combo)
+            self.hotkey_display_label.setStringValue_(_combo_to_display_string(combo))
+            self._stop_hotkey_capture()
+            return None
 
         self._capture_monitor = NSEvent.addLocalMonitorForEventsMatchingMask_handler_(
             NSEventMaskFlagsChanged | NSEventMaskKeyDown, handler

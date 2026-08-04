@@ -5,6 +5,7 @@ from AppKit import (
     NSEventModifierFlagShift,
 )
 
+import hotkey
 import preferences
 
 
@@ -72,50 +73,32 @@ def test_combo_to_display_string_empty_combo():
     assert preferences._combo_to_display_string("") == ""
 
 
-def test_combo_to_display_string_unknown_token_passthrough():
-    assert preferences._combo_to_display_string("<ctrl>+<space>") == "⌃<space>"
+def test_combo_to_display_string_key_token_uppercased():
+    assert preferences._combo_to_display_string("<ctrl>+<alt>+<d>") == "⌃⌥D"
+    assert preferences._combo_to_display_string("<ctrl>+<f13>") == "⌃F13"
+    assert preferences._combo_to_display_string("<ctrl>+<space>") == "⌃SPACE"
 
 
-def _new_controller():
-    controller = preferences.PreferencesWindowController.alloc().init()
-    controller._captured_flags = 0
-    return controller
+def test_keydown_to_combo_key_only():
+    combo = preferences._keydown_to_combo(hotkey.KEY_TOKENS["<d>"], 0)
+    assert combo == "<d>"
 
 
-def test_capture_flags_finalizes_combo_on_full_release():
-    controller = _new_controller()
-    assert controller._process_capture_flags(NSEventModifierFlagControl) is None
-    combo = controller._process_capture_flags(0)
-    assert combo == "<ctrl>"
+def test_keydown_to_combo_with_modifiers():
+    keycode = hotkey.KEY_TOKENS["<d>"]
+    flags = NSEventModifierFlagControl | NSEventModifierFlagOption
+    combo = preferences._keydown_to_combo(keycode, flags)
+    assert combo == "<ctrl>+<alt>+<d>"
 
 
-def test_capture_flags_remembers_full_combo_through_staggered_release():
-    # Realistic human behavior: press ctrl, then also press alt, then release
-    # alt first (flags drops back to ctrl-only) before finally releasing ctrl.
-    # The finalized combo must still be "<ctrl>+<alt>", not just "<ctrl>".
-    controller = _new_controller()
-    assert controller._process_capture_flags(NSEventModifierFlagControl) is None
-    assert (
-        controller._process_capture_flags(
-            NSEventModifierFlagControl | NSEventModifierFlagOption
-        )
-        is None
-    )
-    # alt released first: flags reading drops back to ctrl-only mid-release
-    assert controller._process_capture_flags(NSEventModifierFlagControl) is None
-    combo = controller._process_capture_flags(0)
-    assert combo == "<ctrl>+<alt>"
+def test_keydown_to_combo_function_key():
+    keycode = hotkey.KEY_TOKENS["<f13>"]
+    combo = preferences._keydown_to_combo(keycode, NSEventModifierFlagControl)
+    assert combo == "<ctrl>+<f13>"
 
 
-def test_capture_flags_returns_none_while_still_holding_keys():
-    controller = _new_controller()
-    assert controller._process_capture_flags(NSEventModifierFlagCommand) is None
-    assert (
-        controller._process_capture_flags(
-            NSEventModifierFlagCommand | NSEventModifierFlagShift
-        )
-        is None
-    )
+def test_keydown_to_combo_unsupported_keycode_returns_none():
+    assert preferences._keydown_to_combo(-1, NSEventModifierFlagControl) is None
 
 
 def test_start_hotkey_capture_ignores_repeat_click_instead_of_leaking_a_monitor():
@@ -127,7 +110,6 @@ def test_start_hotkey_capture_ignores_repeat_click_instead_of_leaking_a_monitor(
     controller.config = {}
     controller.on_save = None
     controller._capture_monitor = None
-    controller._captured_flags = 0
     controller._build_window()
 
     controller.startHotkeyCapture_(None)

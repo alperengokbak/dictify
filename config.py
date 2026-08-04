@@ -5,7 +5,7 @@ CONFIG_DIR = Path.home() / ".config" / "dictify"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
 DEFAULT_CONFIG = {
-    "hotkey": "<ctrl>+<alt>",
+    "hotkey": "<ctrl>+<alt>+<cmd>+<d>",
     "whisper_binary": "/opt/homebrew/bin/whisper-cli",
     "whisper_model_path": str(CONFIG_DIR / "models" / "ggml-medium.bin"),
     "ffmpeg_binary": "/opt/homebrew/bin/ffmpeg",
