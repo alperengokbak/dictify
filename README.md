@@ -23,9 +23,9 @@ The app lives in the menu bar. Press the hotkey once to start recording, press i
 ## Required macOS permissions
 
 - **Microphone** — needed to record audio.
-- **Accessibility** — needed for two things: the global hotkey listener, and simulating the paste keystroke into the frontmost app. Without Accessibility access, the simulated paste silently does nothing even though recording, transcription, and cleanup all still succeed — you'll get a correct transcript on the clipboard with no visible error, so if pasting never happens, check this first.
+- **Accessibility** — needed for simulating the paste keystroke into the frontmost app. Without Accessibility access, the simulated paste silently does nothing even though recording, transcription, and cleanup all still succeed — you'll get a correct transcript on the clipboard with no visible error, so if pasting never happens, check this first. (The global hotkey itself is registered via macOS's native Carbon hotkey API and does not need Accessibility access.)
 
-Grant both under System Settings > Privacy & Security, for whichever terminal or app you use to run `dictate.py`. If you run it via the LaunchAgent below instead of a terminal, grant permission to `.venv/bin/python` itself (its full path) — launchd runs it as its own distinct process, separate from whatever terminal app you've already granted permission to.
+Grant both under System Settings > Privacy & Security. If you run Dictify via `Dictify.app` (directly or through the LaunchAgent), grant permission to "Dictify" itself — it's a real app bundle with its own identity, not a bare interpreter, so the permission entry is named "Dictify" rather than "python3.11".
 
 ## Launch at login
 
@@ -55,7 +55,7 @@ Settings live in `~/.config/dictify/config.json` and are created with defaults o
 
 ### Hotkey
 
-Default is Control+Option (`<ctrl>+<alt>`), stick to modifier-only combos if you change it. The global hotkey listener observes key events but does not consume them like a native macOS-registered shortcut would, so any printable key in the combo (letters, digits, Space, etc.) still reaches whatever app has focus and types there too — e.g. `<alt>+<space>` would insert a literal space into the focused text field every time you triggered the hotkey. Modifier keys (`<ctrl>`, `<alt>`, `<cmd>`, `<shift>`) never type anything on their own, so a combo made only of those has nothing to leak.
+Default is Control+Option+Command+D (`<ctrl>+<alt>+<cmd>+<d>`) — three modifiers plus a key is deliberately unusual to minimize the chance of colliding with an existing app or system shortcut. The hotkey is registered with macOS's native Carbon hotkey API (`RegisterEventHotKey`), the same mechanism Spotlight and apps like Alfred and Rectangle use — it's consumed system-wide before it ever reaches the frontmost app, so unlike a plain key-event listener, nothing leaks into whatever you're typing into. That also means it needs a real, non-modifier key: exactly one of `<a>`–`<z>`, `<0>`–`<9>`, `<f1>`–`<f20>`, `<space>`, `<tab>`, `<return>`, `<escape>`, `<delete>`, or an arrow key (`<left>`/`<right>`/`<up>`/`<down>`), plus any combination of `<ctrl>`, `<alt>`, `<cmd>`, `<shift>` modifiers — modifier-only combos (e.g. just `<ctrl>+<alt>`) are no longer supported, since Carbon's hotkey manager has no way to represent them. Easiest way to set one is **Preferences... → Set Shortcut...**: hold your modifiers, press the key, done.
 
 ### Recording mode
 
