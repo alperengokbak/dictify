@@ -23,11 +23,33 @@ The app lives in the menu bar. Press the hotkey once to start recording, press i
 - **Microphone** — needed to record audio.
 - **Accessibility** — needed for two things: the global hotkey listener, and simulating the paste keystroke into the frontmost app. Without Accessibility access, the simulated paste silently does nothing even though recording, transcription, and cleanup all still succeed — you'll get a correct transcript on the clipboard with no visible error, so if pasting never happens, check this first.
 
-Grant both under System Settings > Privacy & Security, for whichever terminal or app you use to run `dictate.py`.
+Grant both under System Settings > Privacy & Security, for whichever terminal or app you use to run `dictate.py`. If you run it via the LaunchAgent below instead of a terminal, grant permission to `.venv/bin/python` itself (its full path) — launchd runs it as its own distinct process, separate from whatever terminal app you've already granted permission to.
+
+## Launch at login
+
+To have `dictate-mac` start automatically instead of running it by hand each time, install it as a per-user LaunchAgent:
+
+```bash
+cp local.dictate-mac.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.dictate-mac.plist
+```
+
+(the plist's `ProgramArguments` paths need to match wherever you actually cloned this repo — edit it first if that differs from `/Users/alperengokbak/vsCode/general-question-for-claude/dictate-mac`)
+
+It restarts automatically if the app crashes (`KeepAlive` with `SuccessfulExit: false`), but not after you quit it deliberately via the menu bar's Quit item. Logs go to `~/Library/Logs/dictate-mac.log` and `.err.log`.
+
+Once loaded, it shows up in **System Settings → General → Login Items → Allow in the Background**, where you can toggle it on/off. That toggle is enable/disable only — to change what it actually runs, edit the plist and reload it:
+
+```bash
+launchctl bootout gui/$(id -u)/local.dictate-mac
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.dictate-mac.plist
+```
+
+To remove it entirely: `launchctl bootout gui/$(id -u)/local.dictate-mac && rm ~/Library/LaunchAgents/local.dictate-mac.plist`.
 
 ## Configuration
 
-Settings live in `~/.config/dictate-mac/config.json` and are created with defaults on first run; edit the file to change any of these.
+Settings live in `~/.config/dictate-mac/config.json` and are created with defaults on first run. Most of them can be edited from the menu bar's **Preferences...** window (hotkey, glossary, silence thresholds, history limit, cleanup/history toggles) instead of hand-editing the file.
 
 ### Hotkey
 
@@ -49,4 +71,12 @@ Language can be forced to Turkish or English (instead of per-utterance auto-dete
 "glossary": ["Kubernetes", "PyQt", "Grafana"]
 ```
 
-It's used two ways: as a hint to Whisper during transcription, and as a reference list the cleanup step uses to fix a misheard word back to the correct spelling — it won't rewrite words that are already correct or unrelated. Empty by default; edit `config.json` directly to add entries (no menu UI for this yet).
+It's used two ways: as a hint to Whisper during transcription, and as a reference list the cleanup step uses to fix a misheard word back to the correct spelling — it won't rewrite words that are already correct or unrelated. Empty by default; edit it from **Preferences...** (one term per line) or directly in `config.json`.
+
+### History
+
+Every dictation's raw and cleaned text, with timestamp/language/style, is logged locally to `~/.config/dictate-mac/history.jsonl` (on by default — `"history_enabled": false` in Preferences turns it off). "Show History" in the menu bar opens a readable, most-recent-first view; "Clear History" wipes it.
+
+### Transcribe File...
+
+Transcribes an existing audio or video file instead of live speech — pick one from the "Transcribe File..." menu item (anything ffmpeg can decode: mp3, mp4, m4a, mov, wav, etc.). Saves a `.txt` next to the input file and opens it, and logs it to History like a normal dictation.
