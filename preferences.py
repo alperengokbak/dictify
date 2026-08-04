@@ -114,6 +114,7 @@ class PreferencesWindowController(NSObject):
         )
         box.setTitle_(title)
         box.setTitlePosition_(NSAtTop)
+        box.setTitleFont_(NSFont.boldSystemFontOfSize_(14))
         return box
 
     @objc.python_method
