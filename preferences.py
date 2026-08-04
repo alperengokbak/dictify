@@ -286,9 +286,9 @@ class PreferencesWindowController(NSObject):
 
     @objc.python_method
     def show(self):
+        NSApp.activateIgnoringOtherApps_(True)
         self.window.center()
         self.window.makeKeyAndOrderFront_(None)
-        NSApp.activateIgnoringOtherApps_(True)
 
     @objc.python_method
     def _stop_hotkey_capture(self):
