@@ -126,6 +126,7 @@ class PreferencesWindowController(NSObject):
         self.config = config
         self.on_save = on_save
         self._capture_monitor = None
+        self._is_closed = False
         self._build_window()
         return self
 
@@ -434,6 +435,8 @@ class PreferencesWindowController(NSObject):
 
     @objc.python_method
     def _on_model_download_succeeded(self, size, index):
+        if self._is_closed:
+            return
         self._pending_model_size = size
         self._last_confirmed_model_index = index
         self.model_status_label.setStringValue_("Ready")
@@ -441,6 +444,8 @@ class PreferencesWindowController(NSObject):
 
     @objc.python_method
     def _on_model_download_failed(self, message):
+        if self._is_closed:
+            return
         if self._last_confirmed_model_index >= 0:
             self.model_popup.selectItemAtIndex_(self._last_confirmed_model_index)
         else:
@@ -494,6 +499,7 @@ class PreferencesWindowController(NSObject):
         )
 
     def save_(self, sender):
+        self._is_closed = True
         self._stop_hotkey_capture()
         hotkey_value = str(self.hotkey_field.stringValue()).strip()
         if hotkey_value:
@@ -521,5 +527,6 @@ class PreferencesWindowController(NSObject):
             self.on_save()
 
     def cancel_(self, sender):
+        self._is_closed = True
         self._stop_hotkey_capture()
         self.window.close()

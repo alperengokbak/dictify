@@ -128,6 +128,7 @@ def _controller_with_window(config=None):
     controller.config = config if config is not None else {}
     controller.on_save = None
     controller._capture_monitor = None
+    controller._is_closed = False
     controller._build_window()
     return controller
 
@@ -183,6 +184,19 @@ def test_on_model_download_failed_reverts_selection():
     assert controller.model_popup.indexOfSelectedItem() == whisper_models.MODEL_SIZE_ORDER.index("medium")
     assert controller.model_progress.isHidden()
     assert controller.model_popup.isEnabled()
+
+
+def test_on_model_download_failed_is_noop_after_window_closed():
+    controller = _controller_with_window({"whisper_model_path": "/x/models/ggml-medium.bin"})
+    controller.model_popup.selectItemAtIndex_(whisper_models.MODEL_SIZE_ORDER.index("large"))
+    controller._set_model_downloading_ui(True)
+    controller._is_closed = True
+
+    controller._on_model_download_failed("network error")
+
+    # Selection must NOT have been reverted to the pre-download index (medium):
+    # the callback should have returned immediately without touching torn-down UI.
+    assert controller.model_popup.indexOfSelectedItem() == whisper_models.MODEL_SIZE_ORDER.index("large")
 
 
 def test_save_writes_pending_model_size_into_config():
