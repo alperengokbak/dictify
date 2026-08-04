@@ -8,10 +8,12 @@ from AppKit import (
     NSButtonTypeSwitch,
     NSEvent,
     NSEventMaskFlagsChanged,
+    NSEventMaskKeyDown,
     NSEventModifierFlagCommand,
     NSEventModifierFlagControl,
     NSEventModifierFlagOption,
     NSEventModifierFlagShift,
+    NSEventTypeKeyDown,
     NSFont,
     NSMakeRect,
     NSObject,
@@ -335,6 +337,14 @@ class PreferencesWindowController(NSObject):
         )
 
         def handler(event):
+            if event.type() == NSEventTypeKeyDown:
+                # Only modifier-only combos are supported (see README: a
+                # non-consumed key leaks into whatever app is focused, same
+                # class of issue the global hotkey itself had to avoid).
+                # Swallow it here so it never reaches any app's text field.
+                self.capture_button.setTitle_("Modifier keys only - try again")
+                return None
+
             flags = event.modifierFlags() & relevant_mask
             combo = self._process_capture_flags(flags)
             if combo is not None:
@@ -344,7 +354,7 @@ class PreferencesWindowController(NSObject):
             return event
 
         self._capture_monitor = NSEvent.addLocalMonitorForEventsMatchingMask_handler_(
-            NSEventMaskFlagsChanged, handler
+            NSEventMaskFlagsChanged | NSEventMaskKeyDown, handler
         )
 
     def save_(self, sender):
