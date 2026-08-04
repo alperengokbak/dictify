@@ -74,3 +74,45 @@ def test_combo_to_display_string_empty_combo():
 
 def test_combo_to_display_string_unknown_token_passthrough():
     assert preferences._combo_to_display_string("<ctrl>+<space>") == "⌃<space>"
+
+
+def _new_controller():
+    controller = preferences.PreferencesWindowController.alloc().init()
+    controller._captured_flags = 0
+    return controller
+
+
+def test_capture_flags_finalizes_combo_on_full_release():
+    controller = _new_controller()
+    assert controller._process_capture_flags(NSEventModifierFlagControl) is None
+    combo = controller._process_capture_flags(0)
+    assert combo == "<ctrl>"
+
+
+def test_capture_flags_remembers_full_combo_through_staggered_release():
+    # Realistic human behavior: press ctrl, then also press alt, then release
+    # alt first (flags drops back to ctrl-only) before finally releasing ctrl.
+    # The finalized combo must still be "<ctrl>+<alt>", not just "<ctrl>".
+    controller = _new_controller()
+    assert controller._process_capture_flags(NSEventModifierFlagControl) is None
+    assert (
+        controller._process_capture_flags(
+            NSEventModifierFlagControl | NSEventModifierFlagOption
+        )
+        is None
+    )
+    # alt released first: flags reading drops back to ctrl-only mid-release
+    assert controller._process_capture_flags(NSEventModifierFlagControl) is None
+    combo = controller._process_capture_flags(0)
+    assert combo == "<ctrl>+<alt>"
+
+
+def test_capture_flags_returns_none_while_still_holding_keys():
+    controller = _new_controller()
+    assert controller._process_capture_flags(NSEventModifierFlagCommand) is None
+    assert (
+        controller._process_capture_flags(
+            NSEventModifierFlagCommand | NSEventModifierFlagShift
+        )
+        is None
+    )

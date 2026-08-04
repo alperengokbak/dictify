@@ -298,6 +298,20 @@ class PreferencesWindowController(NSObject):
         self.capture_button.setTitle_("Set Shortcut...")
         self.capture_button.setEnabled_(True)
 
+    @objc.python_method
+    def _process_capture_flags(self, flags):
+        """Feed one FlagsChanged reading in. Accumulates every modifier bit
+        seen while any modifier is held (not just the latest reading), so a
+        combo survives being released one key at a time instead of collapsing
+        to whatever's still held. Returns the finalized combo string once
+        everything has been released, else None."""
+        if flags:
+            self._captured_flags |= flags
+            return None
+        if self._captured_flags:
+            return _modifier_flags_to_combo(self._captured_flags)
+        return None
+
     def startHotkeyCapture_(self, sender):
         self.capture_button.setTitle_("Press keys, then release...")
         self.capture_button.setEnabled_(False)
@@ -312,10 +326,8 @@ class PreferencesWindowController(NSObject):
 
         def handler(event):
             flags = event.modifierFlags() & relevant_mask
-            if flags:
-                self._captured_flags = flags
-            elif self._captured_flags:
-                combo = _modifier_flags_to_combo(self._captured_flags)
+            combo = self._process_capture_flags(flags)
+            if combo is not None:
                 self.hotkey_field.setStringValue_(combo)
                 self.hotkey_display_label.setStringValue_(_combo_to_display_string(combo))
                 self._stop_hotkey_capture()
