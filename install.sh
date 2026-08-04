@@ -15,7 +15,8 @@ MODEL_DIR="$HOME/.config/dictate-mac/models"
 mkdir -p "$MODEL_DIR"
 MODEL_PATH="$MODEL_DIR/ggml-medium.bin"
 if [ ! -f "$MODEL_PATH" ]; then
-  curl -L -o "$MODEL_PATH" https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin
+  curl -fL -o "$MODEL_PATH.part" https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin
+  mv "$MODEL_PATH.part" "$MODEL_PATH"
 else
   echo "Model already present at $MODEL_PATH"
 fi
