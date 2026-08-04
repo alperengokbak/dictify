@@ -7,12 +7,23 @@ class CleanupError(Exception):
 
 def build_cleanup_prompt(raw_text: str) -> str:
     return (
-        "Clean up this raw speech-to-text transcript: remove filler words "
-        "(um, uh, ıı, şey), add proper punctuation and capitalization, and "
-        "fix words that are clearly misheard given the context. Keep the "
-        "response in the same language as the transcript -- never translate "
-        "it. Return only the cleaned transcript, nothing else.\n\n"
-        f"Raw transcript: {raw_text}\n\nCleaned transcript:"
+        "**CRITICAL: DO NOT TRANSLATE. RESPOND ONLY IN THE ORIGINAL LANGUAGE OF THE INPUT.**\n"
+        "**NEVER OUTPUT ENGLISH FOR TURKISH INPUT. NEVER OUTPUT ENGLISH FOR ANY NON-ENGLISH INPUT.**\n\n"
+        "Your task: Clean up raw speech-to-text transcript.\n"
+        "Instructions:\n"
+        "1. Remove ONLY filler words (um, uh, ıı, şey, yani)\n"
+        "2. Add punctuation and capitalization where appropriate\n"
+        "3. Fix clearly misheard words based on context\n"
+        "4. DO NOT add or remove content beyond cleaning\n"
+        "5. DO NOT TRANSLATE - output MUST be in the same language as input\n"
+        "6. Output ONLY the cleaned transcript text\n\n"
+        "LANGUAGE PRESERVATION EXAMPLE:\n"
+        "Input: 'ıı bugün şey çalıştım yani'\n"
+        "Output: 'Bugün çalıştım.'\n"
+        "(Turkish → Turkish, not Turkish → English)\n\n"
+        f"TRANSCRIPT TO CLEAN:\n"
+        f"---\n{raw_text}\n---\n\n"
+        "CLEANED TRANSCRIPT (same language as input, no translation):"
     )
 
 
@@ -22,6 +33,9 @@ def clean_transcript(raw_text: str, config: dict) -> str:
         "model": config["ollama_model"],
         "prompt": build_cleanup_prompt(raw_text),
         "stream": False,
+        "options": {
+            "temperature": 0.1,
+        },
     }
     try:
         resp = requests.post(url, json=payload, timeout=20)

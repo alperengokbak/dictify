@@ -10,7 +10,7 @@ CONFIG = {"ollama_url": "http://localhost:11434", "ollama_model": "qwen2.5:3b"}
 def test_build_cleanup_prompt_includes_raw_text_and_language_instruction():
     prompt = cleanup.build_cleanup_prompt("ıı bugün şey kubernetis üzerinde çalıştım")
     assert "ıı bugün şey kubernetis üzerinde çalıştım" in prompt
-    assert "never translate" in prompt
+    assert "DO NOT TRANSLATE" in prompt
 
 
 @patch("cleanup.requests.post")
