@@ -420,6 +420,8 @@ class PreferencesWindowController(NSObject):
         self.model_progress.setDoubleValue_(0)
 
         def on_progress(downloaded, total):
+            if self._is_closed:
+                return
             percent = (downloaded * 100 / total) if total else 0
             AppHelper.callAfter(self.model_progress.setDoubleValue_, percent)
 

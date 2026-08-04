@@ -199,6 +199,55 @@ def test_on_model_download_failed_is_noop_after_window_closed():
     assert controller.model_popup.indexOfSelectedItem() == whisper_models.MODEL_SIZE_ORDER.index("large")
 
 
+class _SyncThread:
+    """Stand-in for threading.Thread that runs its target immediately, on the
+    calling thread, instead of spawning a real one - so tests exercising the
+    on_progress closure are deterministic and don't race a background thread
+    or a real AppKit run loop."""
+
+    def __init__(self, target=None, daemon=None):
+        self._target = target
+
+    def start(self):
+        if self._target is not None:
+            self._target()
+
+
+class _SyncAppHelper:
+    @staticmethod
+    def callAfter(fn, *args):
+        fn(*args)
+
+
+def test_on_progress_is_noop_after_window_closed(monkeypatch):
+    # Route modelSizeChanged_'s background download through fakes that run
+    # synchronously: threading.Thread.start() runs the worker inline, and
+    # AppHelper.callAfter invokes its callback inline. This lets the test
+    # simulate the window closing *during* the download (mid-progress) and
+    # deterministically observe whether on_progress's guard held.
+    monkeypatch.setattr(preferences, "threading", type("_M", (), {"Thread": _SyncThread}))
+    monkeypatch.setattr(preferences, "AppHelper", _SyncAppHelper)
+
+    controller = _controller_with_window({"whisper_model_path": "/x/models/ggml-medium.bin"})
+
+    def fake_download_model(size, models_dir, on_progress):
+        # Simulate the window closing mid-download, then a progress tick
+        # arriving afterwards - exactly the race the guard protects against.
+        controller._is_closed = True
+        on_progress(50, 100)
+        return models_dir / f"ggml-{size}.bin"
+
+    monkeypatch.setattr(whisper_models, "download_model", fake_download_model)
+
+    controller.model_popup.selectItemAtIndex_(whisper_models.MODEL_SIZE_ORDER.index("large"))
+    controller.modelSizeChanged_(None)
+
+    # modelSizeChanged_ itself resets the bar to 0 before the download starts;
+    # if on_progress's guard didn't hold, the fake's on_progress(50, 100) call
+    # would have pushed it to 50.
+    assert controller.model_progress.doubleValue() == 0.0
+
+
 def test_save_writes_pending_model_size_into_config():
     controller = _controller_with_window({"whisper_model_path": "/x/models/ggml-medium.bin"})
     controller._pending_model_size = "small"
