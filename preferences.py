@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Optional
 
 import objc
@@ -19,6 +20,9 @@ from AppKit import (
     NSFont,
     NSMakeRect,
     NSObject,
+    NSPopUpButton,
+    NSProgressIndicator,
+    NSProgressIndicatorStyleBar,
     NSScrollView,
     NSTextField,
     NSTextView,
@@ -31,14 +35,20 @@ from AppKit import (
 
 from PyObjCTools import AppHelper
 
+import threading
+
+import rumps
+
 import hotkey
-from config import save_config
+import whisper_models
+from config import CONFIG_DIR, save_config
 
 WINDOW_WIDTH = 520
 MARGIN = 20
 SECTION_GAP = 14
 
 HOTKEY_SECTION_HEIGHT = 76
+TRANSCRIPTION_SECTION_HEIGHT = 92
 CLEANUP_SECTION_HEIGHT = 190
 SILENCE_SECTION_HEIGHT = 100
 HISTORY_SECTION_HEIGHT = 96
@@ -170,6 +180,58 @@ class PreferencesWindowController(NSObject):
         return box
 
     @objc.python_method
+    def _build_transcription_section(self, y_top, width):
+        box = self._make_box("Transcription", y_top, TRANSCRIPTION_SECTION_HEIGHT, width)
+        content = box.contentView()
+        cw = content.bounds().size.width
+        ch = content.bounds().size.height
+
+        self._add_label(content, "Whisper model:", NSMakeRect(0, ch - 26, 110, 20))
+
+        self.model_popup = NSPopUpButton.alloc().initWithFrame_pullsDown_(
+            NSMakeRect(110, ch - 30, cw - 110, 26), False
+        )
+        for size in whisper_models.MODEL_SIZE_ORDER:
+            self.model_popup.addItemWithTitle_(whisper_models.MODEL_LABELS[size])
+
+        models_dir = CONFIG_DIR / "models"
+        current_path = Path(self.config.get("whisper_model_path", ""))
+        current_size = whisper_models.size_from_path(current_path)
+        self._pending_model_size = None
+        if current_size is not None:
+            index = whisper_models.MODEL_SIZE_ORDER.index(current_size)
+            self.model_popup.selectItemAtIndex_(index)
+            self._last_confirmed_model_index = index
+            status_text = "Ready"
+        else:
+            self.model_popup.selectItem_(None)
+            self._last_confirmed_model_index = -1
+            status_text = "Currently using a custom model path"
+        self.model_popup.setTarget_(self)
+        self.model_popup.setAction_("modelSizeChanged:")
+        content.addSubview_(self.model_popup)
+
+        self.model_status_label = self._add_label(
+            content, status_text, NSMakeRect(110, ch - 52, cw - 110, 18), font_size=10,
+        )
+
+        self.model_progress = NSProgressIndicator.alloc().initWithFrame_(
+            NSMakeRect(110, ch - 50, cw - 110, 16)
+        )
+        self.model_progress.setStyle_(NSProgressIndicatorStyleBar)
+        self.model_progress.setIndeterminate_(False)
+        self.model_progress.setMinValue_(0)
+        self.model_progress.setMaxValue_(100)
+        self.model_progress.setHidden_(True)
+        content.addSubview_(self.model_progress)
+
+        self._add_label(
+            content, "Picking a size that isn't downloaded yet fetches it automatically.",
+            NSMakeRect(0, 4, cw, 16), font_size=10,
+        )
+        return box
+
+    @objc.python_method
     def _build_cleanup_section(self, y_top, width):
         box = self._make_box("Cleanup", y_top, CLEANUP_SECTION_HEIGHT, width)
         content = box.contentView()
@@ -254,10 +316,11 @@ class PreferencesWindowController(NSObject):
         total_height = (
             2 * MARGIN
             + HOTKEY_SECTION_HEIGHT
+            + TRANSCRIPTION_SECTION_HEIGHT
             + CLEANUP_SECTION_HEIGHT
             + SILENCE_SECTION_HEIGHT
             + HISTORY_SECTION_HEIGHT
-            + 4 * SECTION_GAP
+            + 5 * SECTION_GAP
             + BUTTON_ROW_HEIGHT
         )
         rect = NSMakeRect(200, 100, WINDOW_WIDTH, total_height)
@@ -278,6 +341,10 @@ class PreferencesWindowController(NSObject):
         hotkey_box = self._build_hotkey_section(y, WINDOW_WIDTH)
         content.addSubview_(hotkey_box)
         y -= HOTKEY_SECTION_HEIGHT + SECTION_GAP
+
+        transcription_box = self._build_transcription_section(y, WINDOW_WIDTH)
+        content.addSubview_(transcription_box)
+        y -= TRANSCRIPTION_SECTION_HEIGHT + SECTION_GAP
 
         cleanup_box = self._build_cleanup_section(y, WINDOW_WIDTH)
         content.addSubview_(cleanup_box)
@@ -330,6 +397,59 @@ class PreferencesWindowController(NSObject):
             self._capture_monitor = None
         self.capture_button.setTitle_("Set Shortcut...")
         self.capture_button.setEnabled_(True)
+
+    @objc.python_method
+    def _set_model_downloading_ui(self, downloading):
+        self.model_popup.setEnabled_(not downloading)
+        self.model_progress.setHidden_(not downloading)
+        self.model_status_label.setHidden_(downloading)
+
+    def modelSizeChanged_(self, sender):
+        index = self.model_popup.indexOfSelectedItem()
+        size = whisper_models.MODEL_SIZE_ORDER[index]
+        models_dir = CONFIG_DIR / "models"
+
+        if whisper_models.is_downloaded(size, models_dir):
+            self._pending_model_size = size
+            self._last_confirmed_model_index = index
+            self.model_status_label.setStringValue_("Ready")
+            return
+
+        self._set_model_downloading_ui(True)
+        self.model_progress.setDoubleValue_(0)
+
+        def on_progress(downloaded, total):
+            percent = (downloaded * 100 / total) if total else 0
+            AppHelper.callAfter(self.model_progress.setDoubleValue_, percent)
+
+        def worker():
+            try:
+                whisper_models.download_model(size, models_dir, on_progress)
+            except whisper_models.ModelDownloadError as exc:
+                AppHelper.callAfter(self._on_model_download_failed, str(exc))
+            else:
+                AppHelper.callAfter(self._on_model_download_succeeded, size, index)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    @objc.python_method
+    def _on_model_download_succeeded(self, size, index):
+        self._pending_model_size = size
+        self._last_confirmed_model_index = index
+        self.model_status_label.setStringValue_("Ready")
+        self._set_model_downloading_ui(False)
+
+    @objc.python_method
+    def _on_model_download_failed(self, message):
+        if self._last_confirmed_model_index >= 0:
+            self.model_popup.selectItemAtIndex_(self._last_confirmed_model_index)
+        else:
+            self.model_popup.selectItem_(None)
+        self._set_model_downloading_ui(False)
+        try:
+            rumps.notification("Dictify", "Model download failed", message)
+        except Exception:
+            pass
 
     def startHotkeyCapture_(self, sender):
         if self._capture_monitor is not None:
@@ -391,6 +511,10 @@ class PreferencesWindowController(NSObject):
         self.config["cleanup_enabled"] = bool(self.cleanup_checkbox.state())
         self.config["history_enabled"] = bool(self.history_checkbox.state())
 
+        if self._pending_model_size is not None:
+            self.config["whisper_model_path"] = str(
+                whisper_models.model_path_for_size(self._pending_model_size, CONFIG_DIR / "models")
+            )
         save_config(self.config)
         self.window.close()
         if self.on_save:

@@ -7,6 +7,7 @@ from AppKit import (
 
 import hotkey
 import preferences
+import whisper_models
 
 
 def test_parse_glossary_text_splits_lines_and_strips_empties():
@@ -120,3 +121,80 @@ def test_start_hotkey_capture_ignores_repeat_click_instead_of_leaking_a_monitor(
     assert controller._capture_monitor is first_monitor
 
     controller._stop_hotkey_capture()
+
+
+def _controller_with_window(config=None):
+    controller = preferences.PreferencesWindowController.alloc().init()
+    controller.config = config if config is not None else {}
+    controller.on_save = None
+    controller._capture_monitor = None
+    controller._build_window()
+    return controller
+
+
+def test_transcription_section_preselects_known_model_size():
+    controller = _controller_with_window({"whisper_model_path": "/x/models/ggml-small.bin"})
+    assert controller.model_popup.indexOfSelectedItem() == whisper_models.MODEL_SIZE_ORDER.index("small")
+    assert controller.model_status_label.stringValue() == "Ready"
+    assert controller._last_confirmed_model_index == whisper_models.MODEL_SIZE_ORDER.index("small")
+
+
+def test_transcription_section_handles_custom_model_path():
+    controller = _controller_with_window({"whisper_model_path": "/x/my-custom-model.bin"})
+    assert controller.model_popup.indexOfSelectedItem() == -1
+    assert controller._last_confirmed_model_index == -1
+    assert "custom" in str(controller.model_status_label.stringValue()).lower()
+
+
+def test_selecting_already_downloaded_size_updates_pending_without_download(tmp_path, monkeypatch):
+    monkeypatch.setattr(preferences, "CONFIG_DIR", tmp_path)
+    (tmp_path / "models").mkdir()
+    (tmp_path / "models" / "ggml-tiny.bin").write_bytes(b"fake")
+
+    controller = _controller_with_window({"whisper_model_path": str(tmp_path / "models" / "ggml-medium.bin")})
+    controller.model_popup.selectItemAtIndex_(whisper_models.MODEL_SIZE_ORDER.index("tiny"))
+    controller.modelSizeChanged_(None)
+
+    assert controller._pending_model_size == "tiny"
+    assert controller.model_status_label.stringValue() == "Ready"
+    assert controller.model_progress.isHidden()
+
+
+def test_on_model_download_succeeded_updates_state():
+    controller = _controller_with_window({"whisper_model_path": "/x/models/ggml-medium.bin"})
+    controller._set_model_downloading_ui(True)
+
+    controller._on_model_download_succeeded("large", whisper_models.MODEL_SIZE_ORDER.index("large"))
+
+    assert controller._pending_model_size == "large"
+    assert controller._last_confirmed_model_index == whisper_models.MODEL_SIZE_ORDER.index("large")
+    assert controller.model_status_label.stringValue() == "Ready"
+    assert controller.model_progress.isHidden()
+    assert controller.model_popup.isEnabled()
+
+
+def test_on_model_download_failed_reverts_selection():
+    controller = _controller_with_window({"whisper_model_path": "/x/models/ggml-medium.bin"})
+    controller.model_popup.selectItemAtIndex_(whisper_models.MODEL_SIZE_ORDER.index("large"))
+    controller._set_model_downloading_ui(True)
+
+    controller._on_model_download_failed("network error")
+
+    assert controller.model_popup.indexOfSelectedItem() == whisper_models.MODEL_SIZE_ORDER.index("medium")
+    assert controller.model_progress.isHidden()
+    assert controller.model_popup.isEnabled()
+
+
+def test_save_writes_pending_model_size_into_config():
+    controller = _controller_with_window({"whisper_model_path": "/x/models/ggml-medium.bin"})
+    controller._pending_model_size = "small"
+    controller.hotkey_field.setStringValue_("")
+    controller.glossary_view.setString_("")
+    controller.peak_field.setStringValue_("-55.0")
+    controller.rise_field.setStringValue_("10.0")
+    controller.history_limit_field.setStringValue_("200")
+
+    controller.save_(None)
+
+    expected = str(whisper_models.model_path_for_size("small", preferences.CONFIG_DIR / "models"))
+    assert controller.config["whisper_model_path"] == expected
