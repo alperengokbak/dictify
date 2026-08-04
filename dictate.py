@@ -1,3 +1,4 @@
+import os
 import subprocess
 import tempfile
 import threading
@@ -14,7 +15,7 @@ from AppKit import (
 
 from audio import is_silent, record, save_wav
 from cleanup import CleanupError, clean_transcript
-from config import load_config, save_config
+from config import DEFAULT_CONFIG, load_config, save_config
 from filetranscribe import FileTranscribeError, transcribe_file
 from history import append_entry, clear_history, load_history
 from hotkey import HotkeyListener
@@ -27,6 +28,7 @@ IDLE_TITLE = "🎙"
 RECORDING_TITLE = "🔴"
 PROCESSING_TITLE = "⏳"
 SAMPLE_RATE = 16000
+LOCK_PATH = Path.home() / ".config" / "dictify" / "dictify.lock"
 
 LANGUAGE_LABELS = {
     "auto": "Auto (detect)",
@@ -44,6 +46,29 @@ RECORDING_MODE_LABELS = {
     "toggle": "Toggle (press to start/stop)",
     "push_to_talk": "Push to Talk (hold to record)",
 }
+
+
+def _acquire_singleton_lock(lock_path: Path) -> bool:
+    """Returns True and claims lock_path for this process if no other live
+    instance holds it. Returns False (leaving lock_path untouched) if
+    another instance is already running."""
+    if lock_path.exists():
+        try:
+            existing_pid = int(lock_path.read_text().strip())
+        except ValueError:
+            existing_pid = None
+        if existing_pid is not None:
+            try:
+                os.kill(existing_pid, 0)
+            except ProcessLookupError:
+                pass  # stale lock file - that process no longer exists
+            except PermissionError:
+                return False  # process exists, we just can't signal it
+            else:
+                return False  # process is alive
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text(str(os.getpid()))
+    return True
 
 
 class DictateApp(rumps.App):
@@ -201,16 +226,39 @@ class DictateApp(rumps.App):
             for value, item in items.items():
                 item.state = value == current
 
-    def _start_hotkey_listener(self):
+    def _build_hotkey_listener(self, combo):
         if self.config.get("recording_mode", "toggle") == "push_to_talk":
-            self.hotkey = HotkeyListener(
-                self.config["hotkey"],
+            return HotkeyListener(
+                combo,
                 on_activate=self._on_hotkey_press,
                 on_deactivate=self._on_hotkey_release,
                 mode="push_to_talk",
             )
-        else:
-            self.hotkey = HotkeyListener(self.config["hotkey"], on_activate=self.on_hotkey)
+        return HotkeyListener(combo, on_activate=self.on_hotkey)
+
+    def _start_hotkey_listener(self):
+        combo = self.config.get("hotkey", DEFAULT_CONFIG["hotkey"])
+        try:
+            self.hotkey = self._build_hotkey_listener(combo)
+        except ValueError:
+            # Old-format modifier-only combos (e.g. "<ctrl>+<alt>") saved by
+            # a previous version are no longer valid: RegisterEventHotKey
+            # requires a real, non-modifier key. Fall back to the current
+            # default instead of crashing on startup.
+            combo = DEFAULT_CONFIG["hotkey"]
+            self.config["hotkey"] = combo
+            save_config(self.config)
+            try:
+                rumps.notification(
+                    "Dictify",
+                    "Hotkey reset",
+                    f"Your saved hotkey was in an old format; reset to {combo}.",
+                )
+            except Exception:
+                # Startup must not die because the notification center isn't
+                # available yet - the config fix above already happened.
+                pass
+            self.hotkey = self._build_hotkey_listener(combo)
         self.hotkey.start()
 
     def _restart_hotkey_listener(self):
@@ -302,6 +350,8 @@ class DictateApp(rumps.App):
 
 
 def main():
+    if not _acquire_singleton_lock(LOCK_PATH):
+        return
     # rumps never sets this itself, and since this process runs as a bare
     # python interpreter (exec'd from the .app bundle's wrapper script, or
     # invoked directly), macOS has no Info.plist to read LSUIElement from -
