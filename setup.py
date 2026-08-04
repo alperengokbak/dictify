@@ -1,3 +1,13 @@
+"""Builds Dictify.app. Must be run with the -A (alias) flag:
+
+    .venv/bin/python setup.py py2app -A
+
+Alias mode is required, not optional - it produces a bundle that
+references this repo's live files and .venv by path instead of freezing a
+standalone copy, preserving the project's live-edit development workflow.
+Running without -A produces a full/frozen build, which is out of scope
+for this project.
+"""
 from setuptools import setup
 
 APP = ["dictate.py"]

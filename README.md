@@ -16,7 +16,15 @@ This installs `whisper-cpp`, `ollama`, and `portaudio` via Homebrew, starts the 
 .venv/bin/python dictate.py
 ```
 
-...or open `Dictify.app` (included in this repo, installed to `/Applications/Dictify.app` — findable via Spotlight/Launchpad like a normal app). It's a thin wrapper around the same venv + script, not a standalone bundle, so it still needs this repo and its `.venv` in place at their current path. It stays a menu-bar-only app either way (`LSUIElement` in its `Info.plist`) — no Dock icon, no Cmd+Tab entry, opening it just puts the 🎙 in the menu bar. It also refuses to launch a second copy if one (e.g. the LaunchAgent's) is already running.
+...or open `Dictify.app` (a real `py2app` bundle, built from this repo, installed to `/Applications/Dictify.app` — findable via Spotlight/Launchpad like a normal app). Build it with:
+
+```bash
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python setup.py py2app -A
+cp -R dist/Dictify.app /Applications/Dictify.app
+```
+
+The `-A` (alias mode) flag is required — it produces a bundle that references this repo's live files and `.venv` by path instead of freezing a standalone copy, so editing `dictate.py` and restarting picks up changes with no rebuild step. That also means the bundle hardcodes absolute paths back to this repo and its `.venv` (visible in `Contents/Resources/__boot__.py` if you're curious) — moving either requires rebuilding. It stays a menu-bar-only app (`LSUIElement` in its `Info.plist`) — no Dock icon, no Cmd+Tab entry, opening it just puts the 🎙 in the menu bar. It also refuses to launch a second copy if one (e.g. the LaunchAgent's) is already running.
 
 The app lives in the menu bar. Press the hotkey once to start recording, press it again to stop; the transcript is cleaned up and pasted into the frontmost app automatically. A small floating waveform indicator appears near the bottom of the screen while recording, showing your live voice level, and disappears the moment you stop — it doesn't steal keyboard focus from whatever you're dictating into.
 

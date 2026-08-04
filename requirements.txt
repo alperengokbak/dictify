@@ -1,6 +1,6 @@
 rumps>=0.4.0
-quickmachotkey>=2025.7.28
-py2app>=0.28
+quickmachotkey>=2025.7.28,<2026  # pinned upper bound: hotkey.py imports its private _MinimalHIToolbox module, which carries no API stability promise
+py2app>=0.28  # build-time only - never imported by the running app
 sounddevice>=0.4.6
 numpy>=1.26
 requests>=2.31

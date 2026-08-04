@@ -1,5 +1,7 @@
+import fcntl
 import os
 import subprocess
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -48,26 +50,30 @@ RECORDING_MODE_LABELS = {
 }
 
 
+_lock_file_descriptor = None  # kept open for the process lifetime - closing it (or process exit/crash) releases the OS-level lock
+
+
 def _acquire_singleton_lock(lock_path: Path) -> bool:
-    """Returns True and claims lock_path for this process if no other live
-    instance holds it. Returns False (leaving lock_path untouched) if
-    another instance is already running."""
-    if lock_path.exists():
-        try:
-            existing_pid = int(lock_path.read_text().strip())
-        except ValueError:
-            existing_pid = None
-        if existing_pid is not None:
-            try:
-                os.kill(existing_pid, 0)
-            except ProcessLookupError:
-                pass  # stale lock file - that process no longer exists
-            except PermissionError:
-                return False  # process exists, we just can't signal it
-            else:
-                return False  # process is alive
+    """Returns True and holds an exclusive OS-level lock on lock_path for
+    this process's lifetime if no other live instance holds it. Returns
+    False (leaving lock_path's existing content untouched) if another
+    instance already holds the lock.
+
+    Uses fcntl.flock rather than reading/comparing a stored PID: the kernel
+    releases the lock automatically on process exit for any reason (clean
+    quit, crash, kill -9), so there's no stale-lock-file class of bug to
+    handle, and acquisition is atomic (no check-then-write race)."""
+    global _lock_file_descriptor
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path.write_text(str(os.getpid()))
+    fd = os.open(str(lock_path), os.O_CREAT | os.O_WRONLY, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return False
+    os.ftruncate(fd, 0)
+    os.write(fd, str(os.getpid()).encode())
+    _lock_file_descriptor = fd
     return True
 
 
@@ -351,14 +357,14 @@ class DictateApp(rumps.App):
 
 def main():
     if not _acquire_singleton_lock(LOCK_PATH):
+        print(f"Another Dictify instance holds {LOCK_PATH}; exiting.", file=sys.stderr)
         return
-    # rumps never sets this itself, and since this process runs as a bare
-    # python interpreter (exec'd from the .app bundle's wrapper script, or
-    # invoked directly), macOS has no Info.plist to read LSUIElement from -
-    # without setting this explicitly, the app defaults to
-    # NSApplicationActivationPolicyProhibited, which structurally blocks it
-    # from ever gaining real keyboard focus no matter how hard `activate()`
-    # is called elsewhere.
+    # rumps never sets this itself. Harmless no-op when launched from
+    # Dictify.app (which has a real Info.plist with LSUIElement), but still
+    # required when run directly as `.venv/bin/python dictate.py` - without
+    # it the app defaults to NSApplicationActivationPolicyProhibited, which
+    # structurally blocks it from ever gaining real keyboard focus no
+    # matter how hard `activate()` is called elsewhere.
     NSApplication.sharedApplication()  # guarantee it exists before we configure it
     NSApp.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
     DictateApp().run()
