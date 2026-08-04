@@ -6,8 +6,7 @@
     <string>local.dictify</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/alperengokbak/vsCode/general-question-for-claude/dictify/.venv/bin/python</string>
-        <string>/Users/alperengokbak/vsCode/general-question-for-claude/dictify/dictate.py</string>
+        <string>/Applications/Dictify.app/Contents/MacOS/Dictify</string>
     </array>
     <key>WorkingDirectory</key>
     <string>/Users/alperengokbak/vsCode/general-question-for-claude/dictify</string>

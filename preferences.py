@@ -325,6 +325,14 @@ class PreferencesWindowController(NSObject):
         return None
 
     def startHotkeyCapture_(self, sender):
+        if self._capture_monitor is not None:
+            # Already capturing - ignore a repeat click instead of installing
+            # a second local event monitor on top of the first. Overwriting
+            # self._capture_monitor would leak the original one: its
+            # reference is lost, so it can never be removed, and it keeps
+            # silently swallowing every keystroke (in every field, even
+            # after this window closes) for the rest of the process's life.
+            return
         self.capture_button.setTitle_("Press keys, then release...")
         self.capture_button.setEnabled_(False)
         self._captured_flags = 0

@@ -116,3 +116,25 @@ def test_capture_flags_returns_none_while_still_holding_keys():
         )
         is None
     )
+
+
+def test_start_hotkey_capture_ignores_repeat_click_instead_of_leaking_a_monitor():
+    # A second click while already capturing must NOT install a second local
+    # event monitor: overwriting self._capture_monitor would lose the first
+    # one's reference forever, leaking a monitor that silently swallows every
+    # keystroke (in every field) for the rest of the process's life.
+    controller = preferences.PreferencesWindowController.alloc().init()
+    controller.config = {}
+    controller.on_save = None
+    controller._capture_monitor = None
+    controller._captured_flags = 0
+    controller._build_window()
+
+    controller.startHotkeyCapture_(None)
+    first_monitor = controller._capture_monitor
+    assert first_monitor is not None
+
+    controller.startHotkeyCapture_(None)
+    assert controller._capture_monitor is first_monitor
+
+    controller._stop_hotkey_capture()

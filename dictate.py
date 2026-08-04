@@ -4,7 +4,13 @@ import threading
 from pathlib import Path
 
 import rumps
-from AppKit import NSModalResponseOK, NSOpenPanel
+from AppKit import (
+    NSApp,
+    NSApplication,
+    NSApplicationActivationPolicyAccessory,
+    NSModalResponseOK,
+    NSOpenPanel,
+)
 
 from audio import is_silent, record, save_wav
 from cleanup import CleanupError, clean_transcript
@@ -296,6 +302,15 @@ class DictateApp(rumps.App):
 
 
 def main():
+    # rumps never sets this itself, and since this process runs as a bare
+    # python interpreter (exec'd from the .app bundle's wrapper script, or
+    # invoked directly), macOS has no Info.plist to read LSUIElement from -
+    # without setting this explicitly, the app defaults to
+    # NSApplicationActivationPolicyProhibited, which structurally blocks it
+    # from ever gaining real keyboard focus no matter how hard `activate()`
+    # is called elsewhere.
+    NSApplication.sharedApplication()  # guarantee it exists before we configure it
+    NSApp.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
     DictateApp().run()
 
 
