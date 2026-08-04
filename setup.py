@@ -24,6 +24,7 @@ OPTIONS = {
             "LSUIElement": True,
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": "11.0",
+            "NSMicrophoneUsageDescription": "Dictify records your voice to transcribe it into text.",
         },
     }
 }
