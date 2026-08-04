@@ -11,6 +11,7 @@ from AppKit import (
     NSModalResponseOK,
     NSOpenPanel,
 )
+from PyObjCTools import AppHelper
 
 from audio import is_silent, record, save_wav
 from cleanup import CleanupError, clean_transcript
@@ -87,6 +88,14 @@ class DictateApp(rumps.App):
         self._refresh_all_checkmarks()
 
         self._start_hotkey_listener()
+        # A hotkey listener created at the exact moment the process starts
+        # can end up silently not receiving events at all (looks running,
+        # never fires) - almost certainly the same one-time Accessibility/TCC
+        # settling delay seen elsewhere right after a fresh launch. Recreating
+        # it (exactly what switching Recording Mode does) reliably fixes it,
+        # so do that once automatically shortly after startup instead of
+        # requiring a manual mode-switch workaround.
+        AppHelper.callLater(2.0, self._restart_hotkey_listener)
 
     def _show_preferences(self, sender):
         self._preferences_controller = PreferencesWindowController.alloc().init()
