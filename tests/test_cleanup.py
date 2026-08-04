@@ -44,3 +44,16 @@ def test_clean_transcript_raises_cleanup_error_on_missing_response_field(mock_po
 
     with pytest.raises(cleanup.CleanupError):
         cleanup.clean_transcript("some text", CONFIG)
+
+
+@patch("cleanup.requests.post")
+def test_clean_transcript_raises_cleanup_error_on_non_dict_response(mock_post):
+    # Ollama is expected to return a JSON object, but if it ever returns
+    # something else (e.g. a bare list), .get() must not escape as a
+    # raw AttributeError - it should surface as CleanupError like any
+    # other malformed-response case, so the caller's fallback path runs.
+    mock_post.return_value = Mock(json=lambda: ["unexpected", "list", "response"])
+    mock_post.return_value.raise_for_status = lambda: None
+
+    with pytest.raises(cleanup.CleanupError):
+        cleanup.clean_transcript("some text", CONFIG)

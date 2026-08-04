@@ -42,7 +42,13 @@ class DictateApp(rumps.App):
         self._samples = None
 
         def run():
-            self._samples = record(self._stop_event, SAMPLE_RATE)
+            try:
+                self._samples = record(self._stop_event, SAMPLE_RATE)
+            except Exception as exc:
+                self._samples = None
+                rumps.notification("dictate-mac", "Recording failed", str(exc))
+                self.state = "idle"
+                self.title = IDLE_TITLE
 
         self._record_thread = threading.Thread(target=run)
         self._record_thread.start()
@@ -89,6 +95,8 @@ class DictateApp(rumps.App):
 
             copy_to_clipboard(final_text)
             paste_into_frontmost_app()
+        except Exception as exc:
+            rumps.notification("dictate-mac", "Dictation failed", str(exc))
         finally:
             self.state = "idle"
             self.title = IDLE_TITLE

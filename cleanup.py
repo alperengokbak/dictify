@@ -46,7 +46,11 @@ def clean_transcript(raw_text: str, config: dict) -> str:
     except ValueError as exc:
         raise CleanupError(f"Ollama returned invalid JSON: {exc}") from exc
 
-    text = data.get("response")
-    if not text:
-        raise CleanupError("Ollama response missing 'response' field")
-    return text.strip()
+    try:
+        text = data.get("response")
+        if not text:
+            raise CleanupError("Ollama response missing 'response' field")
+        text = text.strip()
+    except (AttributeError, TypeError) as exc:
+        raise CleanupError(f"Ollama returned unexpected response shape: {exc}") from exc
+    return text
