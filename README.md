@@ -27,4 +27,26 @@ Grant both under System Settings > Privacy & Security, for whichever terminal or
 
 ## Configuration
 
-Default hotkey is Option+Space (`<alt>+<space>`). Settings live in `~/.config/dictate-mac/config.json` and are created with defaults on first run; edit the file to change the hotkey or other options.
+Settings live in `~/.config/dictate-mac/config.json` and are created with defaults on first run; edit the file to change any of these.
+
+### Hotkey
+
+Default is Control+Option (`<ctrl>+<alt>`), stick to modifier-only combos if you change it. The global hotkey listener observes key events but does not consume them like a native macOS-registered shortcut would, so any printable key in the combo (letters, digits, Space, etc.) still reaches whatever app has focus and types there too — e.g. `<alt>+<space>` would insert a literal space into the focused text field every time you triggered the hotkey. Modifier keys (`<ctrl>`, `<alt>`, `<cmd>`, `<shift>`) never type anything on their own, so a combo made only of those has nothing to leak.
+
+### Recording mode
+
+Toggle (press to start, press again to stop) or push-to-talk (hold to record, release to stop) — switchable live from the menu bar's "Recording Mode" submenu.
+
+### Language and style
+
+Language can be forced to Turkish or English (instead of per-utterance auto-detect) from the "Language" submenu. Cleanup tone can be set to Default, Professional, or Casual from the "Style" submenu.
+
+### Glossary
+
+`"glossary"` is a list of proper nouns and jargon you say often (names, project/tool names, etc.) that speech-to-text tends to mangle:
+
+```json
+"glossary": ["Kubernetes", "PyQt", "Grafana"]
+```
+
+It's used two ways: as a hint to Whisper during transcription, and as a reference list the cleanup step uses to fix a misheard word back to the correct spelling — it won't rewrite words that are already correct or unrelated. Empty by default; edit `config.json` directly to add entries (no menu UI for this yet).
