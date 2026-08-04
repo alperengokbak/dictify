@@ -25,6 +25,8 @@ from AppKit import (
     NSWindowStyleMaskTitled,
 )
 
+from PyObjCTools import AppHelper
+
 from config import save_config
 
 WINDOW_WIDTH = 520
@@ -288,7 +290,15 @@ class PreferencesWindowController(NSObject):
     def show(self):
         NSApp.activateIgnoringOtherApps_(True)
         self.window.center()
-        self.window.makeKeyAndOrderFront_(None)
+
+        def _raise():
+            self.window.makeKeyAndOrderFront_(None)
+            self.window.orderFrontRegardless()
+
+        # Deferred by one run-loop tick: activation is not always synchronous,
+        # so ordering the window front in the same call can still lose to
+        # whatever app was frontmost a moment ago.
+        AppHelper.callAfter(_raise)
 
     @objc.python_method
     def _stop_hotkey_capture(self):
