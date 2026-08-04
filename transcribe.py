@@ -24,11 +24,14 @@ def transcribe(wav_path: str, config: dict) -> tuple[str, str]:
             config["whisper_binary"],
             "-m", config["whisper_model_path"],
             "-f", wav_path,
-            "-l", "auto",
+            "-l", config.get("language", "auto"),
             "-np",
             "-oj",
             "-of", out_prefix,
         ]
+        glossary = config.get("glossary") or []
+        if glossary:
+            cmd += ["--prompt", ", ".join(glossary)]
         try:
             result = subprocess.run(cmd, capture_output=True, text=True)
         except FileNotFoundError as exc:

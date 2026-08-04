@@ -62,3 +62,59 @@ def test_transcribe_raises_transcribe_error_on_segment_missing_text_key():
     with patch("transcribe.subprocess.run", side_effect=fake_run):
         with pytest.raises(transcribe.TranscribeError):
             transcribe.transcribe("/tmp/some.wav", CONFIG)
+
+
+def _fake_run_capturing_cmd(captured, content_writer):
+    def fake_run(cmd, capture_output, text):
+        captured.append(cmd)
+        out_prefix = cmd[cmd.index("-of") + 1]
+        content_writer(out_prefix + ".json")
+        return MagicMock(returncode=0, stderr="")
+
+    return fake_run
+
+
+def _write_minimal_output(path):
+    with open(path, "w") as f:
+        json.dump({"result": {"language": "en"}, "transcription": [{"text": "hi"}]}, f)
+
+
+def test_transcribe_defaults_to_auto_language_when_not_configured():
+    captured = []
+    fake_run = _fake_run_capturing_cmd(captured, _write_minimal_output)
+    with patch("transcribe.subprocess.run", side_effect=fake_run):
+        transcribe.transcribe("/tmp/some.wav", CONFIG)
+    cmd = captured[0]
+    assert cmd[cmd.index("-l") + 1] == "auto"
+
+
+def test_transcribe_uses_configured_language_override():
+    captured = []
+    fake_run = _fake_run_capturing_cmd(captured, _write_minimal_output)
+    config_with_language = dict(CONFIG, language="tr")
+    with patch("transcribe.subprocess.run", side_effect=fake_run):
+        transcribe.transcribe("/tmp/some.wav", config_with_language)
+    cmd = captured[0]
+    assert cmd[cmd.index("-l") + 1] == "tr"
+
+
+def test_transcribe_omits_prompt_flag_when_glossary_empty():
+    captured = []
+    fake_run = _fake_run_capturing_cmd(captured, _write_minimal_output)
+    with patch("transcribe.subprocess.run", side_effect=fake_run):
+        transcribe.transcribe("/tmp/some.wav", CONFIG)
+    cmd = captured[0]
+    assert "--prompt" not in cmd
+
+
+def test_transcribe_passes_glossary_as_prompt_hint():
+    captured = []
+    fake_run = _fake_run_capturing_cmd(captured, _write_minimal_output)
+    config_with_glossary = dict(CONFIG, glossary=["Kubernetes", "PyQt", "Grafana"])
+    with patch("transcribe.subprocess.run", side_effect=fake_run):
+        transcribe.transcribe("/tmp/some.wav", config_with_glossary)
+    cmd = captured[0]
+    prompt_value = cmd[cmd.index("--prompt") + 1]
+    assert "Kubernetes" in prompt_value
+    assert "PyQt" in prompt_value
+    assert "Grafana" in prompt_value
