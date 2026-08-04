@@ -1,0 +1,9 @@
+#!/bin/bash
+# Thin wrapper: launches the existing venv + dictate.py script.
+# Guards against a duplicate instance if the LaunchAgent-managed copy is
+# already running (or a previous launch of this same app).
+if pgrep -f "dictate-mac/dictate.py" > /dev/null; then
+    exit 0
+fi
+exec "/Users/alperengokbak/vsCode/general-question-for-claude/dictate-mac/.venv/bin/python" \
+     "/Users/alperengokbak/vsCode/general-question-for-claude/dictate-mac/dictate.py"
