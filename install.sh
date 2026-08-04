@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "==> Installing Homebrew packages (whisper-cpp, ollama, portaudio)"
-brew install whisper-cpp ollama portaudio
+echo "==> Installing Homebrew packages (whisper-cpp, ollama, portaudio, ffmpeg)"
+brew install whisper-cpp ollama portaudio ffmpeg
 
 echo "==> Starting the Ollama background service"
 brew services start ollama
