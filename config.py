@@ -20,6 +20,7 @@ DEFAULT_CONFIG = {
     "recording_mode": "toggle",
     "history_enabled": True,
     "history_limit": 200,
+    "sound_feedback_enabled": True,
 }
 
 

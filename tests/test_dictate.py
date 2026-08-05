@@ -1,6 +1,8 @@
 import fcntl
 import os
 
+import rumps
+
 import dictate
 
 
@@ -40,3 +42,53 @@ def test_acquire_singleton_lock_succeeds_after_holder_releases(tmp_path):
     fcntl.flock(holder_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     os.close(holder_fd)  # releases the lock, simulating the holder process exiting
     assert dictate._acquire_singleton_lock(lock_path) is True
+
+
+def _bare_app(config=None):
+    """Builds a DictateApp instance without running its __init__ (which
+    starts a real global hotkey listener and other live side effects) -
+    same bypass-construction technique tests/test_preferences.py uses for
+    PreferencesWindowController, adapted for a plain-Python App subclass."""
+    app = dictate.DictateApp.__new__(dictate.DictateApp)
+    app.config = config if config is not None else {}
+    return app
+
+
+def test_play_start_sound_plays_when_enabled(monkeypatch):
+    played = []
+    monkeypatch.setattr(dictate, "play_sound", lambda name: played.append(name))
+    app = _bare_app({"sound_feedback_enabled": True})
+
+    app._play_start_sound()
+
+    assert played == [dictate.START_SOUND]
+
+
+def test_play_start_sound_silent_when_disabled(monkeypatch):
+    played = []
+    monkeypatch.setattr(dictate, "play_sound", lambda name: played.append(name))
+    app = _bare_app({"sound_feedback_enabled": False})
+
+    app._play_start_sound()
+
+    assert played == []
+
+
+def test_play_stop_sound_plays_when_enabled(monkeypatch):
+    played = []
+    monkeypatch.setattr(dictate, "play_sound", lambda name: played.append(name))
+    app = _bare_app({"sound_feedback_enabled": True})
+
+    app._play_stop_sound()
+
+    assert played == [dictate.STOP_SOUND]
+
+
+def test_play_stop_sound_defaults_to_enabled_when_key_missing(monkeypatch):
+    played = []
+    monkeypatch.setattr(dictate, "play_sound", lambda name: played.append(name))
+    app = _bare_app({})  # no "sound_feedback_enabled" key at all
+
+    app._play_stop_sound()
+
+    assert played == [dictate.STOP_SOUND]

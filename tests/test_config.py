@@ -37,3 +37,7 @@ def test_malformed_json_falls_back_to_defaults(tmp_path, monkeypatch):
     cfg = config_module.load_config()
 
     assert cfg == config_module.DEFAULT_CONFIG
+
+
+def test_default_config_has_sound_feedback_enabled():
+    assert config_module.DEFAULT_CONFIG["sound_feedback_enabled"] is True

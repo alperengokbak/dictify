@@ -18,6 +18,7 @@ from AppKit import (
 from audio import is_silent, record, save_wav
 from cleanup import CleanupError, clean_transcript
 from config import DEFAULT_CONFIG, load_config, save_config
+from feedback import START_SOUND, STOP_SOUND, play_sound
 from filetranscribe import FileTranscribeError, transcribe_file
 from history import append_entry, clear_history, load_history
 from hotkey import HotkeyListener
@@ -289,8 +290,17 @@ class DictateApp(rumps.App):
             self._stop_recording()
         # ignore releases that don't correspond to an active recording
 
+    def _play_start_sound(self):
+        if self.config.get("sound_feedback_enabled", True):
+            play_sound(START_SOUND)
+
+    def _play_stop_sound(self):
+        if self.config.get("sound_feedback_enabled", True):
+            play_sound(STOP_SOUND)
+
     def _start_recording(self):
         self.state = "recording"
+        self._play_start_sound()
         self.title = RECORDING_TITLE
         self._stop_event = threading.Event()
         self._samples = None
@@ -313,6 +323,7 @@ class DictateApp(rumps.App):
 
     def _stop_recording(self):
         self.state = "processing"
+        self._play_stop_sound()
         self.title = PROCESSING_TITLE
         self.waveform.hide()
         self._stop_event.set()
