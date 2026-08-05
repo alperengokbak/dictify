@@ -11,4 +11,11 @@ def play_sound(name: str) -> None:
     sound name degrades gracefully instead of crashing the caller."""
     sound = NSSound.soundNamed_(name)
     if sound is not None:
-        sound.play()
+        try:
+            sound.play()
+        except Exception:
+            # In practice NSSound.play() returns NO on failure rather than
+            # raising, but a raise here must never propagate into the
+            # recording state machine (_start_recording/_stop_recording
+            # call this mid-transition).
+            pass

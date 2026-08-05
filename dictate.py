@@ -132,7 +132,13 @@ class DictateApp(rumps.App):
         self._start_hotkey_listener()
 
     def _seed_last_transcript_item(self):
-        entries = load_history()
+        try:
+            entries = load_history()
+        except Exception:
+            # Startup must not die because history.jsonl is unreadable (bad
+            # permissions, replaced by a directory, etc.) - just leave the
+            # menu item showing its empty-history placeholder.
+            return
         if entries:
             self._update_last_transcript_item(entries[-1].get("final_text", ""))
 

@@ -39,6 +39,17 @@ def test_play_sound_unknown_name_is_a_noop(monkeypatch):
     feedback.play_sound("NotARealSound")  # must not raise
 
 
+def test_play_sound_swallows_exception_from_play(monkeypatch):
+    class _RaisingSound:
+        def play(self):
+            raise RuntimeError("boom")
+
+    _FakeNSSound._sound_to_return = _RaisingSound()
+    monkeypatch.setattr(feedback, "NSSound", _FakeNSSound)
+
+    feedback.play_sound("Tink")  # must not raise
+
+
 def test_start_and_stop_sound_constants():
     assert feedback.START_SOUND == "Tink"
     assert feedback.STOP_SOUND == "Pop"

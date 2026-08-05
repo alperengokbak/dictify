@@ -150,6 +150,20 @@ def test_seed_last_transcript_item_empty_history_leaves_placeholder(monkeypatch)
 
     assert app._last_transcript_last_text is None
     assert str(app._last_transcript_item.title) == "Last: (none yet)"
+    assert app._last_transcript_item.callback is None
+
+
+def test_seed_last_transcript_item_history_load_failure_leaves_placeholder(monkeypatch):
+    def _raise():
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(dictate, "load_history", _raise)
+    app = _bare_app_with_last_transcript_item()
+
+    app._seed_last_transcript_item()  # must not raise
+
+    assert app._last_transcript_last_text is None
+    assert str(app._last_transcript_item.title) == "Last: (none yet)"
 
 
 def test_copy_last_transcript_copies_full_text(monkeypatch):

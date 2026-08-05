@@ -59,7 +59,7 @@ To remove it entirely: `launchctl bootout gui/$(id -u)/local.dictify && rm ~/Lib
 
 ## Configuration
 
-Settings live in `~/.config/dictify/config.json` and are created with defaults on first run. Most of them can be edited from the menu bar's **Preferences...** window (hotkey, Whisper model size, glossary, silence thresholds, history limit, cleanup/history toggles) instead of hand-editing the file.
+Settings live in `~/.config/dictify/config.json` and are created with defaults on first run. Most of them can be edited from the menu bar's **Preferences...** window (hotkey, Whisper model size, glossary, silence thresholds, history limit, cleanup/history toggles, sound toggle) instead of hand-editing the file.
 
 ### Hotkey
 
@@ -68,6 +68,10 @@ Default is Control+Option+Command+D (`<ctrl>+<alt>+<cmd>+<d>`) — three modifie
 ### Recording mode
 
 Toggle (press to start, press again to stop) or push-to-talk (hold to record, release to stop) — switchable live from the menu bar's "Recording Mode" submenu.
+
+### Sound feedback
+
+Dictify plays a short system sound on every recording start ("Tink") and stop ("Pop"), so you can tell it's listening without looking at the menu bar icon. Controlled by the "Play sound on start/stop" checkbox in Preferences' **Feedback** section (config key `sound_feedback_enabled`, on by default).
 
 ### Language and style
 
@@ -86,6 +90,10 @@ It's used two ways: as a hint to Whisper during transcription, and as a referenc
 ### History
 
 Every dictation's raw and cleaned text, with timestamp/language/style, is logged locally to `~/.config/dictify/history.jsonl` (on by default — `"history_enabled": false` in Preferences turns it off). "Show History" in the menu bar opens a readable, most-recent-first view; "Clear History" wipes it.
+
+### Last transcript
+
+The menu bar always shows a "Last: …" item with a truncated preview of your most recent dictation — this works even if `history_enabled` is turned off, since it's tracked independently of history logging. Click it to copy the full text to the clipboard. Before your first dictation it reads "Last: (none yet)" and is unclickable.
 
 ### Transcribe File...
 
