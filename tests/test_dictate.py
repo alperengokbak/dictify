@@ -92,3 +92,72 @@ def test_play_stop_sound_defaults_to_enabled_when_key_missing(monkeypatch):
     app._play_stop_sound()
 
     assert played == [dictate.STOP_SOUND]
+
+
+def _bare_app_with_last_transcript_item():
+    app = _bare_app()
+    app._last_transcript_last_text = None
+    app._last_transcript_item = rumps.MenuItem("Last: (none yet)", callback=None)
+    return app
+
+
+def test_format_last_transcript_label_short_text_passes_through():
+    assert dictate._format_last_transcript_label("hello world") == "Last: hello world"
+
+
+def test_format_last_transcript_label_truncates_long_text():
+    text = "x" * 60
+    label = dictate._format_last_transcript_label(text, limit=50)
+    assert label == "Last: " + "x" * 50 + "…"
+
+
+def test_format_last_transcript_label_collapses_whitespace():
+    text = "line one\nline two\n\nline three"
+    assert dictate._format_last_transcript_label(text) == "Last: line one line two line three"
+
+
+def test_update_last_transcript_item_sets_title_text_and_enables():
+    app = _bare_app_with_last_transcript_item()
+
+    app._update_last_transcript_item("hello world")
+
+    assert app._last_transcript_last_text == "hello world"
+    assert str(app._last_transcript_item.title) == "Last: hello world"
+    assert app._last_transcript_item.callback == app._copy_last_transcript
+
+
+def test_seed_last_transcript_item_from_existing_history(monkeypatch):
+    monkeypatch.setattr(
+        dictate, "load_history",
+        lambda: [
+            {"final_text": "first entry"},
+            {"final_text": "most recent entry"},
+        ],
+    )
+    app = _bare_app_with_last_transcript_item()
+
+    app._seed_last_transcript_item()
+
+    assert app._last_transcript_last_text == "most recent entry"
+    assert str(app._last_transcript_item.title) == "Last: most recent entry"
+
+
+def test_seed_last_transcript_item_empty_history_leaves_placeholder(monkeypatch):
+    monkeypatch.setattr(dictate, "load_history", lambda: [])
+    app = _bare_app_with_last_transcript_item()
+
+    app._seed_last_transcript_item()
+
+    assert app._last_transcript_last_text is None
+    assert str(app._last_transcript_item.title) == "Last: (none yet)"
+
+
+def test_copy_last_transcript_copies_full_text(monkeypatch):
+    copied = []
+    monkeypatch.setattr(dictate, "copy_to_clipboard", lambda text: copied.append(text))
+    app = _bare_app_with_last_transcript_item()
+    app._last_transcript_last_text = "the full dictated text"
+
+    app._copy_last_transcript(None)
+
+    assert copied == ["the full dictated text"]

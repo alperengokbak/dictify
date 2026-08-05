@@ -51,6 +51,12 @@ RECORDING_MODE_LABELS = {
 }
 
 
+def _format_last_transcript_label(text, limit=50):
+    single_line = " ".join(text.split())
+    truncated = single_line if len(single_line) <= limit else single_line[:limit] + "…"
+    return f"Last: {truncated}"
+
+
 _lock_file_descriptor = None  # kept open for the process lifetime - closing it (or process exit/crash) releases the OS-level lock
 
 
@@ -99,6 +105,10 @@ class DictateApp(rumps.App):
             RECORDING_MODE_LABELS,
             on_change=self._restart_hotkey_listener,
         )
+        self._last_transcript_last_text = None
+        self._last_transcript_item = rumps.MenuItem("Last: (none yet)", callback=None)
+        self._seed_last_transcript_item()
+
         history_menu = rumps.MenuItem("History")
         history_menu.add(rumps.MenuItem("Show History", callback=self._show_history))
         history_menu.add(rumps.MenuItem("Clear History", callback=self._clear_history))
@@ -112,6 +122,7 @@ class DictateApp(rumps.App):
             language_menu,
             style_menu,
             recording_mode_menu,
+            self._last_transcript_item,
             history_menu,
             transcribe_file_item,
             preferences_item,
@@ -119,6 +130,19 @@ class DictateApp(rumps.App):
         self._refresh_all_checkmarks()
 
         self._start_hotkey_listener()
+
+    def _seed_last_transcript_item(self):
+        entries = load_history()
+        if entries:
+            self._update_last_transcript_item(entries[-1].get("final_text", ""))
+
+    def _update_last_transcript_item(self, text):
+        self._last_transcript_last_text = text
+        self._last_transcript_item.title = _format_last_transcript_label(text)
+        self._last_transcript_item.set_callback(self._copy_last_transcript)
+
+    def _copy_last_transcript(self, sender):
+        copy_to_clipboard(self._last_transcript_last_text)
 
     def _show_preferences(self, sender):
         self._preferences_controller = PreferencesWindowController.alloc().init()
@@ -169,6 +193,7 @@ class DictateApp(rumps.App):
         try:
             raw_text, language = transcribe_file(input_path, self.config)
             final_text = self._clean_with_fallback(raw_text)
+            self._update_last_transcript_item(final_text)
 
             output_path = Path(input_path).with_suffix(".txt")
             output_path.write_text(final_text)
@@ -354,6 +379,8 @@ class DictateApp(rumps.App):
                 return
 
             final_text = self._clean_with_fallback(raw_text)
+
+            self._update_last_transcript_item(final_text)
 
             copy_to_clipboard(final_text)
             paste_into_frontmost_app()
