@@ -243,3 +243,39 @@ def test_save_writes_pending_model_size_into_config(tmp_path, monkeypatch):
 
     expected = str(whisper_models.model_path_for_size("small", tmp_path / "models"))
     assert controller.config["whisper_model_path"] == expected
+
+
+def test_feedback_section_reflects_config_enabled():
+    controller = _controller_with_window({"sound_feedback_enabled": True})
+    assert controller.sound_feedback_checkbox.state() == 1
+
+
+def test_feedback_section_reflects_config_disabled():
+    controller = _controller_with_window({"sound_feedback_enabled": False})
+    assert controller.sound_feedback_checkbox.state() == 0
+
+
+def test_feedback_section_defaults_to_enabled_when_key_missing():
+    controller = _controller_with_window({})
+    assert controller.sound_feedback_checkbox.state() == 1
+
+
+def test_save_writes_sound_feedback_enabled_into_config(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(preferences, "CONFIG_DIR", tmp_path)
+
+    controller = _controller_with_window({
+        "whisper_model_path": "/x/models/ggml-medium.bin",
+        "sound_feedback_enabled": True,
+    })
+    controller.hotkey_field.setStringValue_("")
+    controller.glossary_view.setString_("")
+    controller.peak_field.setStringValue_("-55.0")
+    controller.rise_field.setStringValue_("10.0")
+    controller.history_limit_field.setStringValue_("200")
+    controller.sound_feedback_checkbox.setState_(0)
+
+    controller.save_(None)
+
+    assert controller.config["sound_feedback_enabled"] is False

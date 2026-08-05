@@ -52,6 +52,7 @@ TRANSCRIPTION_SECTION_HEIGHT = 92
 CLEANUP_SECTION_HEIGHT = 190
 SILENCE_SECTION_HEIGHT = 100
 HISTORY_SECTION_HEIGHT = 96
+FEEDBACK_SECTION_HEIGHT = 56
 BUTTON_ROW_HEIGHT = 44
 
 _MODIFIER_ORDER = [
@@ -320,6 +321,23 @@ class PreferencesWindowController(NSObject):
         return box
 
     @objc.python_method
+    def _build_feedback_section(self, y_top, width):
+        box = self._make_box("Feedback", y_top, FEEDBACK_SECTION_HEIGHT, width)
+        content = box.contentView()
+        ch = content.bounds().size.height
+
+        self.sound_feedback_checkbox = NSButton.alloc().initWithFrame_(
+            NSMakeRect(0, ch - 24, 260, 24)
+        )
+        self.sound_feedback_checkbox.setButtonType_(NSButtonTypeSwitch)
+        self.sound_feedback_checkbox.setTitle_("Play sound on start/stop")
+        self.sound_feedback_checkbox.setState_(
+            1 if self.config.get("sound_feedback_enabled", True) else 0
+        )
+        content.addSubview_(self.sound_feedback_checkbox)
+        return box
+
+    @objc.python_method
     def _build_window(self):
         total_height = (
             2 * MARGIN
@@ -328,7 +346,8 @@ class PreferencesWindowController(NSObject):
             + CLEANUP_SECTION_HEIGHT
             + SILENCE_SECTION_HEIGHT
             + HISTORY_SECTION_HEIGHT
-            + 5 * SECTION_GAP
+            + FEEDBACK_SECTION_HEIGHT
+            + 6 * SECTION_GAP
             + BUTTON_ROW_HEIGHT
         )
         rect = NSMakeRect(200, 100, WINDOW_WIDTH, total_height)
@@ -366,6 +385,10 @@ class PreferencesWindowController(NSObject):
         history_box = self._build_history_section(y, WINDOW_WIDTH)
         content.addSubview_(history_box)
         y -= HISTORY_SECTION_HEIGHT + SECTION_GAP
+
+        feedback_box = self._build_feedback_section(y, WINDOW_WIDTH)
+        content.addSubview_(feedback_box)
+        y -= FEEDBACK_SECTION_HEIGHT + SECTION_GAP
 
         button_y = y - BUTTON_ROW_HEIGHT + 8
         save_button = NSButton.alloc().initWithFrame_(
@@ -531,6 +554,7 @@ class PreferencesWindowController(NSObject):
         )
         self.config["cleanup_enabled"] = bool(self.cleanup_checkbox.state())
         self.config["history_enabled"] = bool(self.history_checkbox.state())
+        self.config["sound_feedback_enabled"] = bool(self.sound_feedback_checkbox.state())
 
         if self._pending_model_size is not None:
             self.config["whisper_model_path"] = str(
