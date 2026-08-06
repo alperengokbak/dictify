@@ -89,7 +89,14 @@ def _transcribe_via_server(wav_path: str, base_url: str, config: dict) -> tuple[
         )
     resp.raise_for_status()
     payload = resp.json()
-    text = payload.get("text", "").strip()
+    # whisper-server's top-level "text" field is meant for human-readable
+    # display and embeds literal newlines between (and sometimes mid-word
+    # within) segments - e.g. "speech-to-\ntext transcription". Pasting that
+    # verbatim splits the transcript across multiple lines/rows instead of
+    # one continuous sentence. Reconstruct from "segments" instead, exactly
+    # like _parse_whisper_json already does for the subprocess path.
+    segments = payload.get("segments", [])
+    text = " ".join(seg["text"].strip() for seg in segments).strip()
     language = payload.get("language", "unknown").lower()
     language = _LANGUAGE_NAME_TO_CODE.get(language, language)
     return text, language

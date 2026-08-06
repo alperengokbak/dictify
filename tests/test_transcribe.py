@@ -136,7 +136,13 @@ def test_transcribe_via_server_parses_text_and_normalizes_known_language(tmp_pat
     wav_path.write_bytes(b"fake wav data")
     with patch(
         "transcribe.requests.post",
-        return_value=_fake_post_response({"text": "  hello there  ", "language": "english"}),
+        return_value=_fake_post_response(
+            {
+                "text": "  hello there  ",
+                "language": "english",
+                "segments": [{"text": "  hello there  "}],
+            }
+        ),
     ) as mock_post:
         text, language = transcribe._transcribe_via_server(
             str(wav_path), "http://127.0.0.1:8090", CONFIG
@@ -146,12 +152,51 @@ def test_transcribe_via_server_parses_text_and_normalizes_known_language(tmp_pat
     assert mock_post.call_args[0][0] == "http://127.0.0.1:8090/inference"
 
 
+def test_transcribe_via_server_joins_segments_instead_of_using_raw_text_field(tmp_path):
+    # Regression test: whisper-server's top-level "text" field embeds
+    # literal newlines between (and sometimes mid-word within) segments -
+    # e.g. "speech-to-\ntext transcription" - because it's meant for
+    # human-readable display, not for feeding straight into a paste buffer.
+    # Pasting that raw text splits it across multiple lines/rows instead of
+    # one continuous sentence. Must reconstruct from "segments" instead,
+    # exactly like _parse_whisper_json already does for the subprocess path.
+    wav_path = tmp_path / "some.wav"
+    wav_path.write_bytes(b"fake wav data")
+    with patch(
+        "transcribe.requests.post",
+        return_value=_fake_post_response(
+            {
+                "text": " Hi, this is a test recording to measure how long speech-to-\n"
+                "text transcription takes on this machine,\n"
+                " so we can figure out where the time is going and reduce it.\n",
+                "language": "english",
+                "segments": [
+                    {"text": " Hi, this is a test recording to measure how long speech-to-"},
+                    {"text": "text transcription takes on this machine,"},
+                    {"text": " so we can figure out where the time is going and reduce it."},
+                ],
+            }
+        ),
+    ):
+        text, _language = transcribe._transcribe_via_server(
+            str(wav_path), "http://127.0.0.1:8090", CONFIG
+        )
+    assert "\n" not in text
+    assert text == (
+        "Hi, this is a test recording to measure how long speech-to- "
+        "text transcription takes on this machine, "
+        "so we can figure out where the time is going and reduce it."
+    )
+
+
 def test_transcribe_via_server_passes_through_unknown_language_lowercased(tmp_path):
     wav_path = tmp_path / "some.wav"
     wav_path.write_bytes(b"fake wav data")
     with patch(
         "transcribe.requests.post",
-        return_value=_fake_post_response({"text": "bonjour", "language": "French"}),
+        return_value=_fake_post_response(
+            {"text": "bonjour", "language": "French", "segments": [{"text": "bonjour"}]}
+        ),
     ):
         _text, language = transcribe._transcribe_via_server(
             str(wav_path), "http://127.0.0.1:8090", CONFIG
@@ -164,7 +209,9 @@ def test_transcribe_via_server_omits_prompt_field_when_glossary_empty(tmp_path):
     wav_path.write_bytes(b"fake wav data")
     with patch(
         "transcribe.requests.post",
-        return_value=_fake_post_response({"text": "hi", "language": "english"}),
+        return_value=_fake_post_response(
+            {"text": "hi", "language": "english", "segments": [{"text": "hi"}]}
+        ),
     ) as mock_post:
         transcribe._transcribe_via_server(str(wav_path), "http://127.0.0.1:8090", CONFIG)
     sent_data = mock_post.call_args.kwargs["data"]
@@ -177,7 +224,9 @@ def test_transcribe_via_server_passes_glossary_as_prompt_field(tmp_path):
     config_with_glossary = dict(CONFIG, glossary=["Kubernetes", "PyQt"])
     with patch(
         "transcribe.requests.post",
-        return_value=_fake_post_response({"text": "hi", "language": "english"}),
+        return_value=_fake_post_response(
+            {"text": "hi", "language": "english", "segments": [{"text": "hi"}]}
+        ),
     ) as mock_post:
         transcribe._transcribe_via_server(
             str(wav_path), "http://127.0.0.1:8090", config_with_glossary
@@ -193,7 +242,13 @@ def test_transcribe_dispatches_to_server_when_available(tmp_path, monkeypatch):
     monkeypatch.setattr(whisper_server, "ensure_running", lambda config: "http://127.0.0.1:8090")
     with patch("transcribe.subprocess.run") as mock_run, patch(
         "transcribe.requests.post",
-        return_value=_fake_post_response({"text": "server result", "language": "english"}),
+        return_value=_fake_post_response(
+            {
+                "text": "server result",
+                "language": "english",
+                "segments": [{"text": "server result"}],
+            }
+        ),
     ):
         text, language = transcribe.transcribe(str(wav_path), CONFIG)
     assert text == "server result"
@@ -362,7 +417,9 @@ def test_transcribe_via_server_sends_a_duration_scaled_timeout(tmp_path):
     _write_wav(wav_path, duration_secs=600)
     with patch(
         "transcribe.requests.post",
-        return_value=_fake_post_response({"text": "hi", "language": "english"}),
+        return_value=_fake_post_response(
+            {"text": "hi", "language": "english", "segments": [{"text": "hi"}]}
+        ),
     ) as mock_post:
         transcribe._transcribe_via_server(str(wav_path), "http://127.0.0.1:8090", CONFIG)
     assert mock_post.call_args.kwargs["timeout"] == (
@@ -413,7 +470,9 @@ def test_transcribe_prints_no_diagnostic_when_the_server_path_works(tmp_path, mo
     monkeypatch.setattr(whisper_server, "ensure_running", lambda config: "http://127.0.0.1:8090")
     with patch(
         "transcribe.requests.post",
-        return_value=_fake_post_response({"text": "hi", "language": "english"}),
+        return_value=_fake_post_response(
+            {"text": "hi", "language": "english", "segments": [{"text": "hi"}]}
+        ),
     ):
         transcribe.transcribe(str(wav_path), CONFIG)
     assert "[dictify diag]" not in capsys.readouterr().err
