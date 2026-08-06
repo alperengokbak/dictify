@@ -3,6 +3,12 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import requests
+
+import whisper_server
+
+_LANGUAGE_NAME_TO_CODE = {"english": "en", "turkish": "tr"}
+
 
 class TranscribeError(Exception):
     pass
@@ -18,6 +24,49 @@ def _parse_whisper_json(json_path: str) -> tuple[str, str]:
 
 
 def transcribe(wav_path: str, config: dict) -> tuple[str, str]:
+    try:
+        base_url = whisper_server.ensure_running(config)
+        return _transcribe_via_server(wav_path, base_url, config)
+    except (
+        whisper_server.WhisperServerError,
+        requests.RequestException,
+        ValueError,
+        KeyError,
+        AttributeError,
+    ):
+        # Falls back on ANY server-path failure, not just connection-level
+        # ones - a malformed/unexpected JSON response (ValueError/KeyError/
+        # AttributeError) should degrade to the subprocess path exactly
+        # like a connection failure would, same defensive stance cleanup.py
+        # already takes for its own Ollama response parsing.
+        return _transcribe_via_subprocess(wav_path, config)
+
+
+def _transcribe_via_server(wav_path: str, base_url: str, config: dict) -> tuple[str, str]:
+    data = {
+        "response_format": "verbose_json",
+        "language": config.get("language", "auto"),
+    }
+    glossary = config.get("glossary") or []
+    if glossary:
+        data["prompt"] = ", ".join(glossary)
+
+    with open(wav_path, "rb") as f:
+        resp = requests.post(
+            f"{base_url}/inference",
+            files={"file": f},
+            data=data,
+            timeout=30,
+        )
+    resp.raise_for_status()
+    payload = resp.json()
+    text = payload.get("text", "").strip()
+    language = payload.get("language", "unknown").lower()
+    language = _LANGUAGE_NAME_TO_CODE.get(language, language)
+    return text, language
+
+
+def _transcribe_via_subprocess(wav_path: str, config: dict) -> tuple[str, str]:
     with tempfile.TemporaryDirectory() as tmpdir:
         out_prefix = str(Path(tmpdir) / "out")
         cmd = [
