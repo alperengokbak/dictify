@@ -231,3 +231,25 @@ def test_transcribe_falls_back_to_subprocess_when_server_request_fails(tmp_path,
     assert text == "hi"
     assert language == "en"
     assert captured
+
+
+def test_transcribe_falls_back_to_subprocess_when_server_response_is_malformed(
+    tmp_path, monkeypatch
+):
+    wav_path = tmp_path / "some.wav"
+    wav_path.write_bytes(b"fake wav data")
+    monkeypatch.setattr(whisper_server, "ensure_running", lambda config: "http://127.0.0.1:8090")
+    captured = []
+    fake_run = _fake_run_capturing_cmd(captured, _write_minimal_output)
+
+    malformed_resp = MagicMock()
+    malformed_resp.raise_for_status = lambda: None
+    malformed_resp.json.side_effect = ValueError("not valid json")
+
+    with patch(
+        "transcribe.requests.post", return_value=malformed_resp
+    ), patch("transcribe.subprocess.run", side_effect=fake_run):
+        text, language = transcribe.transcribe(str(wav_path), CONFIG)
+    assert text == "hi"
+    assert language == "en"
+    assert captured  # subprocess path was actually exercised
