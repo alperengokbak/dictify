@@ -24,6 +24,7 @@ _HOMEBREW_BIN = _detect_homebrew_bin_dir()
 DEFAULT_CONFIG = {
     "hotkey": "<ctrl>+<alt>+<cmd>+<d>",
     "whisper_binary": f"{_HOMEBREW_BIN}/whisper-cli",
+    "whisper_server_binary": f"{_HOMEBREW_BIN}/whisper-server",
     "whisper_model_path": str(CONFIG_DIR / "models" / "ggml-medium.bin"),
     "ffmpeg_binary": f"{_HOMEBREW_BIN}/ffmpeg",
     "ollama_url": "http://localhost:11434",

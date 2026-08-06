@@ -41,3 +41,8 @@ def test_malformed_json_falls_back_to_defaults(tmp_path, monkeypatch):
 
 def test_default_config_has_sound_feedback_enabled():
     assert config_module.DEFAULT_CONFIG["sound_feedback_enabled"] is True
+
+
+def test_default_config_includes_whisper_server_binary():
+    assert "whisper_server_binary" in config_module.DEFAULT_CONFIG
+    assert config_module.DEFAULT_CONFIG["whisper_server_binary"].endswith("whisper-server")
