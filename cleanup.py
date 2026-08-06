@@ -77,6 +77,7 @@ def clean_transcript(raw_text: str, config: dict) -> str:
             style=config.get("style", "default"),
         ),
         "stream": False,
+        "keep_alive": "30m",
         "options": {
             "temperature": 0.1,
         },

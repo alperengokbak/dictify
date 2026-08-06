@@ -126,3 +126,14 @@ def test_clean_transcript_raises_cleanup_error_on_non_dict_response(mock_post):
 
     with pytest.raises(cleanup.CleanupError):
         cleanup.clean_transcript("some text", CONFIG)
+
+
+@patch("cleanup.requests.post")
+def test_clean_transcript_sets_keep_alive_to_avoid_cold_reload(mock_post):
+    mock_post.return_value = Mock(json=lambda: {"response": "cleaned"})
+    mock_post.return_value.raise_for_status = lambda: None
+
+    cleanup.clean_transcript("some text", CONFIG)
+
+    _called_args, called_kwargs = mock_post.call_args
+    assert called_kwargs["json"]["keep_alive"] == "30m"
