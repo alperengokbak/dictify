@@ -246,6 +246,9 @@ class DictateApp(rumps.App):
 
     def _clear_history(self, sender):
         clear_history()
+        self._last_transcript_last_text = None
+        self._last_transcript_item.title = "Last: (none yet)"
+        self._last_transcript_item.set_callback(None)
         rumps.notification("Dictify", "History", "Dictation history cleared.")
 
     def _build_option_submenu(self, title, config_key, labels, on_change=None):

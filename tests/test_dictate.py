@@ -167,6 +167,23 @@ def test_seed_last_transcript_item_history_load_failure_leaves_placeholder(monke
     assert str(app._last_transcript_item.title) == "Last: (none yet)"
 
 
+def test_clear_history_resets_the_last_transcript_item(monkeypatch):
+    # Regression test: clicking "Clear History" deleted history.jsonl but
+    # left the "Last: ..." menu item (and its clipboard-copy-on-click
+    # behavior) showing the old text, since that's separate in-memory
+    # state clear_history() alone never touched.
+    monkeypatch.setattr(dictate, "clear_history", lambda: None)
+    monkeypatch.setattr(dictate.rumps, "notification", lambda *a, **kw: None)
+    app = _bare_app_with_last_transcript_item()
+    app._update_last_transcript_item("some old dictation")
+
+    app._clear_history(None)
+
+    assert app._last_transcript_last_text is None
+    assert str(app._last_transcript_item.title) == "Last: (none yet)"
+    assert app._last_transcript_item.callback is None
+
+
 def test_copy_last_transcript_copies_full_text(monkeypatch):
     copied = []
     monkeypatch.setattr(dictate, "copy_to_clipboard", lambda text: copied.append(text))
