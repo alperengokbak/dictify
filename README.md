@@ -1,6 +1,32 @@
-# Dictify
+<p align="center">
+  <img src="assets/icon.svg" width="128" height="128" alt="Dictify logo">
+</p>
 
-A macOS menu bar app for push-to-talk dictation in Turkish and English, fully on-device (Whisper for transcription, a local Ollama model for cleanup).
+<h1 align="center">Dictify</h1>
+
+<p align="center">A macOS menu bar app for push-to-talk dictation in Turkish and English, fully on-device (Whisper for transcription, a local Ollama model for cleanup).</p>
+
+## Quick Start
+
+For a brand-new machine, in order:
+
+1. **Clone this repo:**
+   ```bash
+   git clone https://github.com/alperengokbak/dictify.git
+   cd dictify
+   ```
+2. **Install dependencies** — Homebrew packages, the Ollama cleanup model, the Whisper transcription model, and a Python virtualenv, all in one step:
+   ```bash
+   chmod +x install.sh
+   ./install.sh
+   ```
+   Requires [Homebrew](https://brew.sh) already installed. Downloads a few hundred MB to ~1.5GB (mostly the Whisper model), so it can take a few minutes on a slow connection.
+3. **Build and run the `.app` bundle** — this is the recommended way to run it, not just an alternative: macOS ties permission prompts (Microphone, Accessibility) to a real app identity, and a bare Python process can fail to trigger them correctly or show up as "python3.11" instead of "Dictify" in System Settings. See [Run](#run) below for the build command.
+4. **Grant permissions** the first time macOS prompts you (Microphone, then Accessibility) — see [Required macOS permissions](#required-macos-permissions) if a prompt doesn't appear or paste doesn't work.
+5. **Try it:** press `⌃⌥⌘D` (the default hotkey) to start recording, speak, press it again to stop — the cleaned-up transcript pastes into whatever's focused, and you'll hear a short "Tink"/"Pop" cue on start/stop.
+6. *(Optional)* [Set it to launch automatically at login](#launch-at-login).
+
+Everything below is reference detail for each of these steps.
 
 ## Install
 
@@ -12,11 +38,7 @@ This installs `whisper-cpp`, `ollama`, and `portaudio` via Homebrew, starts the 
 
 ## Run
 
-```
-.venv/bin/python dictate.py
-```
-
-...or open `Dictify.app` (a real `py2app` bundle, built from this repo, installed to `/Applications/Dictify.app` — findable via Spotlight/Launchpad like a normal app). Build it with:
+**Recommended: build and run the real `.app` bundle.** macOS ties permission prompts and grants (Microphone, Accessibility) to an app's identity — a bare Python process either shows up as "python3.11" in System Settings instead of "Dictify", or can fail to trigger the permission prompt at all. Build it with:
 
 ```bash
 .venv/bin/python -m pip install -r requirements.txt
@@ -24,9 +46,13 @@ This installs `whisper-cpp`, `ollama`, and `portaudio` via Homebrew, starts the 
 cp -R dist/Dictify.app /Applications/Dictify.app
 ```
 
+Then open `Dictify.app` from `/Applications` (findable via Spotlight/Launchpad like a normal app).
+
 The `-A` (alias mode) flag is required — it produces a bundle that references this repo's live files and `.venv` by path instead of freezing a standalone copy, so editing `dictate.py` and restarting picks up changes with no rebuild step. That also means the bundle hardcodes absolute paths back to this repo and its `.venv` (visible in `Contents/Resources/__boot__.py` if you're curious) — moving either requires rebuilding. It stays a menu-bar-only app (`LSUIElement` in its `Info.plist`) — no Dock icon, no Cmd+Tab entry, opening it just puts the 🎙 in the menu bar. It also refuses to launch a second copy if one (e.g. the LaunchAgent's) is already running.
 
 The app lives in the menu bar. Press the hotkey once to start recording, press it again to stop; the transcript is cleaned up and pasted into the frontmost app automatically. A small floating waveform indicator appears near the bottom of the screen while recording, showing your live voice level, and disappears the moment you stop — it doesn't steal keyboard focus from whatever you're dictating into.
+
+**For development only:** `.venv/bin/python dictate.py` runs it directly without building anything, which is faster to iterate with but comes with the permission caveat above — expect to grant permissions to "python3.11" instead of "Dictify" if you run it this way, and possibly not be prompted at all on a fresh machine.
 
 ## Required macOS permissions
 
@@ -98,3 +124,9 @@ The menu bar always shows a "Last: …" item with a truncated preview of your mo
 ### Transcribe File...
 
 Transcribes an existing audio or video file instead of live speech — pick one from the "Transcribe File..." menu item (anything ffmpeg can decode: mp3, mp4, m4a, mov, wav, etc.). Saves a `.txt` next to the input file and opens it, and logs it to History like a normal dictation.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+Dictify depends on several external tools that are installed separately (via `install.sh`/Homebrew/pip) rather than bundled in this repo, each under its own license: [whisper.cpp](https://github.com/ggerganov/whisper.cpp) (MIT), [Ollama](https://github.com/ollama/ollama) (MIT), [ffmpeg](https://ffmpeg.org/legal.html) (LGPL/GPL depending on build), [rumps](https://github.com/jaredks/rumps) (BSD), [quickmachotkey](https://github.com/glyph/quickmachotkey) (MIT), [py2app](https://github.com/ronaldoussoren/py2app) (MIT), [sounddevice](https://github.com/spatialaudio/python-sounddevice) (MIT), and [numpy](https://numpy.org/) (BSD).
