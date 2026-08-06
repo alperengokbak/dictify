@@ -3,6 +3,8 @@ health-checking it, resetting/firing an idle timer, and stopping it.
 Nothing outside this module manages the child process directly - callers
 (transcribe.py) only ever call ensure_running()/stop()."""
 
+import os
+import signal
 import subprocess
 import threading
 import time
@@ -21,12 +23,61 @@ class WhisperServerError(Exception):
     pass
 
 
-_process = None            # subprocess.Popen | None
+class _AdoptedProcess:
+    """Duck-types subprocess.Popen's poll()/terminate()/kill()/wait() just
+    well enough that stop() can treat an adopted orphan (a whisper-server we
+    found already listening on the port, but never spawned ourselves - see
+    the orphan-adoption branch in ensure_running()) the same as a child we
+    did spawn. Without this, stop() would have no handle to terminate an
+    adopted process by, since subprocess.Popen() was never called for it."""
+
+    def __init__(self, pid: int):
+        self.pid = pid
+
+    def poll(self):
+        try:
+            os.kill(self.pid, 0)
+        except OSError:
+            return 0  # no such process - it's gone
+        return None  # still alive
+
+    def terminate(self):
+        try:
+            os.kill(self.pid, signal.SIGTERM)
+        except OSError:
+            pass
+
+    def kill(self):
+        try:
+            os.kill(self.pid, signal.SIGKILL)
+        except OSError:
+            pass
+
+    def wait(self, timeout=None):
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while self.poll() is None:
+            if deadline is not None and time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired(cmd=f"pid {self.pid}", timeout=timeout)
+            time.sleep(0.05)
+        return 0
+
+
+_process = None            # subprocess.Popen | _AdoptedProcess | None
 _idle_timer = None         # threading.Timer | None
-_lock = threading.RLock()  # guards _process/_idle_timer; reentrant because
-                           # ensure_running()'s failure path calls stop() while
-                           # already holding the lock - a plain Lock would deadlock
+_lock = threading.RLock()  # guards _process/_idle_timer/_generation; reentrant
+                           # because ensure_running()'s failure path calls stop()
+                           # while already holding the lock - a plain Lock would
+                           # deadlock
 _last_failure_time = None  # float | None - set on a start failure, cleared on success
+_generation = 0            # int - bumped every time _reset_idle_timer() issues a new
+                           # Timer. Timer.cancel() is a documented no-op once the
+                           # timer's thread has already started running its target,
+                           # so a stale timer that fired just before a renewal can
+                           # still reach _on_idle_timeout() after the renewal
+                           # happened; comparing generations there lets it detect
+                           # it's stale and skip stopping the (renewed) process
+                           # instead of killing it out from under a caller that was
+                           # just handed BASE_URL.
 
 
 def _is_healthy() -> bool:
@@ -37,11 +88,46 @@ def _is_healthy() -> bool:
         return False
 
 
+def _find_listening_pid() -> "int | None":
+    """Best-effort PID discovery for a whisper-server we didn't spawn
+    ourselves (the orphan-adoption path in ensure_running()). Uses lsof
+    (standard on macOS) rather than a third-party dependency. If lsof is
+    unavailable or nothing is found, adoption still succeeds - we just
+    won't have a way to stop that particular process later."""
+    try:
+        result = subprocess.run(
+            ["lsof", "-ti", f"tcp:{PORT}", "-sTCP:LISTEN"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    pids = result.stdout.split()
+    if not pids:
+        return None
+    try:
+        return int(pids[0])
+    except ValueError:
+        return None
+
+
+def _on_idle_timeout(gen: int):
+    """Timer callback - runs on the Timer's own thread. Only stop() if we're
+    still the most recent generation once we actually hold the lock; see the
+    _generation comment above for why this check exists."""
+    with _lock:
+        if gen == _generation:
+            stop()
+
+
 def _reset_idle_timer():
-    global _idle_timer
+    global _idle_timer, _generation
     if _idle_timer is not None:
         _idle_timer.cancel()
-    _idle_timer = threading.Timer(IDLE_TIMEOUT_SECS, stop)
+    _generation += 1
+    gen = _generation
+    _idle_timer = threading.Timer(IDLE_TIMEOUT_SECS, _on_idle_timeout, args=(gen,))
     _idle_timer.daemon = True
     _idle_timer.start()
 
@@ -64,8 +150,13 @@ def ensure_running(config: dict) -> str:
         # Not running under our management - check whether something (e.g. an
         # orphaned instance from a crashed previous run) is already listening
         # on the port and healthy; adopt it instead of double-spawning, which
-        # would just fail to bind.
+        # would just fail to bind. Try to discover its PID so stop() (idle
+        # timer, quit hook, model change) can actually end it later - if that
+        # lookup fails, adoption still proceeds, we just can't stop it.
         if _process is None and _is_healthy():
+            pid = _find_listening_pid()
+            if pid is not None:
+                _process = _AdoptedProcess(pid)
             _reset_idle_timer()
             return BASE_URL
 

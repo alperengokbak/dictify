@@ -1,3 +1,4 @@
+import signal
 import time as real_time
 from unittest.mock import MagicMock, patch
 
@@ -23,6 +24,7 @@ def _reset_module_state():
             whisper_server._idle_timer.cancel()
         whisper_server._idle_timer = None
         whisper_server._last_failure_time = None
+        whisper_server._generation = 0
     _reset()
     yield
     _reset()
@@ -137,12 +139,55 @@ def test_ensure_running_retries_after_cooldown_elapses():
 def test_ensure_running_adopts_already_healthy_unmanaged_server():
     # _process is None (nothing we started ourselves) but something is
     # already listening healthily on the port - e.g. an orphan from a
-    # crashed previous run. Must adopt it, not double-spawn.
+    # crashed previous run. Must adopt it, not double-spawn, and must
+    # record a handle on it (via PID discovery) so stop() can later end it.
     with patch("whisper_server.requests.get", return_value=_fake_response(200)), \
-         patch("whisper_server.subprocess.Popen") as mock_popen:
+         patch("whisper_server.subprocess.Popen") as mock_popen, \
+         patch("whisper_server._find_listening_pid", return_value=4242):
         url = whisper_server.ensure_running(CONFIG)
     assert url == whisper_server.BASE_URL
     mock_popen.assert_not_called()
+    assert isinstance(whisper_server._process, whisper_server._AdoptedProcess)
+    assert whisper_server._process.pid == 4242
+
+
+def test_ensure_running_adopts_even_when_pid_discovery_fails():
+    # PID discovery (lsof) can fail (missing binary, no match, etc.) - the
+    # server is still healthy and must still be adopted; we just won't have
+    # a way to stop() it afterwards.
+    with patch("whisper_server.requests.get", return_value=_fake_response(200)), \
+         patch("whisper_server.subprocess.Popen") as mock_popen, \
+         patch("whisper_server._find_listening_pid", return_value=None):
+        url = whisper_server.ensure_running(CONFIG)
+    assert url == whisper_server.BASE_URL
+    mock_popen.assert_not_called()
+    assert whisper_server._process is None
+
+
+def test_stop_terminates_adopted_unmanaged_process():
+    # Simulates a real OS process: os.kill(pid, 0) raises ProcessLookupError
+    # once the process is actually gone, and turns "gone" only after the
+    # SIGTERM lands - this lets _AdoptedProcess.wait() return immediately
+    # instead of spinning for real time.
+    state = {"alive": True}
+
+    def fake_kill(pid, sig):
+        assert pid == 4242
+        if sig == signal.SIGTERM:
+            state["alive"] = False
+        elif sig == 0 and not state["alive"]:
+            raise ProcessLookupError()
+
+    with patch("whisper_server.requests.get", return_value=_fake_response(200)), \
+         patch("whisper_server.subprocess.Popen") as mock_popen, \
+         patch("whisper_server._find_listening_pid", return_value=4242), \
+         patch("whisper_server.os.kill", side_effect=fake_kill) as mock_kill:
+        whisper_server.ensure_running(CONFIG)
+        mock_popen.assert_not_called()
+        whisper_server.stop()
+
+    assert (4242, signal.SIGTERM) in [call.args for call in mock_kill.call_args_list]
+    assert whisper_server._process is None
 
 
 def test_stop_is_idempotent_with_nothing_running():
@@ -165,5 +210,36 @@ def test_idle_timer_fires_stop_after_timeout(monkeypatch):
         whisper_server.ensure_running(CONFIG)
     assert whisper_server._process is fake_process
     real_time.sleep(0.2)
+    assert whisper_server._process is None
+    assert fake_process.terminated is True
+
+
+def test_stale_idle_timeout_does_not_kill_a_renewed_process():
+    """Regression test for the race where a timer thread that already fired
+    (Timer.cancel() is a documented no-op past that point) can still reach
+    the stop() call after ensure_running() has since re-validated the
+    process and issued a newer generation via _reset_idle_timer(). The fired
+    thread must recognize it's stale and back off instead of stopping the
+    process out from under the caller that was just handed BASE_URL."""
+    fake_process = _FakeProcess()
+    with patch("whisper_server.requests.get", return_value=_fake_response(200)), \
+         patch("whisper_server.subprocess.Popen") as mock_popen:
+        whisper_server._process = fake_process
+        whisper_server.ensure_running(CONFIG)  # issues generation 1
+        stale_gen = whisper_server._generation
+        whisper_server.ensure_running(CONFIG)  # renews the timer -> generation 2
+        mock_popen.assert_not_called()
+
+    assert stale_gen != whisper_server._generation
+
+    # Simulate the stale generation-1 timer thread finally acquiring the
+    # lock and running its callback, after the renewal above.
+    whisper_server._on_idle_timeout(stale_gen)
+
+    assert whisper_server._process is fake_process
+    assert fake_process.terminated is False
+
+    # A callback carrying the current generation must still be able to stop it.
+    whisper_server._on_idle_timeout(whisper_server._generation)
     assert whisper_server._process is None
     assert fake_process.terminated is True
