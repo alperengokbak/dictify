@@ -1,5 +1,6 @@
 import fcntl
 import os
+from unittest.mock import MagicMock
 
 import rumps
 
@@ -205,5 +206,62 @@ def test_on_quit_stops_whisper_server(monkeypatch):
     app = _bare_app()
 
     app._on_quit()
+
+    assert stopped == [True]
+
+
+def _real_app(monkeypatch):
+    """Constructs a genuine DictateApp - __init__ and all - with only the
+    live OS side effects (config file I/O, the global hotkey listener, the
+    waveform window, history reads) stubbed out. Needed for the wiring that
+    only happens inside __init__, which the _bare_app bypass skips entirely."""
+    monkeypatch.setattr(dictate, "load_config", lambda: dict(dictate.DEFAULT_CONFIG))
+    monkeypatch.setattr(dictate, "load_history", lambda: [])
+    monkeypatch.setattr(dictate, "WaveformWindowController", lambda: None)
+    monkeypatch.setattr(dictate.DictateApp, "_start_hotkey_listener", lambda self: None)
+    return dictate.DictateApp()
+
+
+def test_init_registers_on_quit_as_a_before_quit_callback(monkeypatch):
+    """The quit hook is what stops the whisper-server child on app exit -
+    without the registration in __init__, _on_quit is never called and a
+    1.5GB+ process outlives the app. _bare_app skips __init__, so nothing
+    else in this file would notice the registration disappearing."""
+    app = _real_app(monkeypatch)
+    try:
+        assert app._on_quit in rumps.events.before_quit.callbacks
+    finally:
+        # Module-level registry: leaving it registered would leak into other tests.
+        rumps.events.before_quit.unregister(app._on_quit)
+
+
+def test_show_preferences_snapshots_the_model_path_so_an_unchanged_save_is_a_no_op(
+    monkeypatch,
+):
+    """Regression test for the snapshot line in _show_preferences: without
+    it, _whisper_model_path_before_edit is never set, so the getattr default
+    of None never equals the configured path and EVERY Preferences save
+    would needlessly stop (and cold-restart) the server."""
+    stopped = []
+    monkeypatch.setattr(dictate.whisper_server, "stop", lambda: stopped.append(True))
+    monkeypatch.setattr(dictate, "PreferencesWindowController", MagicMock())
+    app = _bare_app({"whisper_model_path": "/models/ggml-medium.bin"})
+
+    app._show_preferences(None)
+    app._stop_whisper_server_if_model_changed()  # user saved without touching the model
+
+    assert stopped == []
+
+
+def test_stop_whisper_server_if_model_changed_stops_when_no_snapshot_was_taken(monkeypatch):
+    # Documents the behavior the test above guards against: with no snapshot
+    # attribute at all, the comparison is against None and the server is
+    # always stopped. Correct as a fail-safe, wrong as an everyday path.
+    stopped = []
+    monkeypatch.setattr(dictate.whisper_server, "stop", lambda: stopped.append(True))
+    app = _bare_app({"whisper_model_path": "/models/ggml-medium.bin"})
+    assert not hasattr(app, "_whisper_model_path_before_edit")
+
+    app._stop_whisper_server_if_model_changed()
 
     assert stopped == [True]

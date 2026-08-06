@@ -125,6 +125,14 @@ The menu bar always shows a "Last: …" item with a truncated preview of your mo
 
 Transcribes an existing audio or video file instead of live speech — pick one from the "Transcribe File..." menu item (anything ffmpeg can decode: mp3, mp4, m4a, mov, wav, etc.). Saves a `.txt` next to the input file and opens it, and logs it to History like a normal dictation.
 
+### Background transcription server
+
+Loading the Whisper model takes a second or two, and paying that on every single dictation adds up. So from your first dictation onwards, Dictify keeps a `whisper-server` process alive in the background with the model already resident — every dictation after that skips the reload. It starts on demand (nothing is running until you actually dictate), listens only on localhost port 8090, and stops itself after 10 minutes with no dictation. It's also stopped when you quit Dictify or change the Whisper model in **Preferences...**.
+
+The trade-off is memory: while that process is alive it holds the whole model, so expect roughly your model's size in extra RAM — about 1.5GB for the default `medium` model, less for the smaller ones. If you'd rather not have that sitting there between dictations, quit Dictify or just wait out the 10-minute idle timeout.
+
+If the server can't be started for any reason, transcription quietly falls back to the original one-shot `whisper-cli` run — you lose the speed-up, not the feature. That fallback is noted in `~/Library/Logs/dictify.err.log` if you ever want to check whether it's happening.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
