@@ -82,6 +82,15 @@ def test_build_cleanup_prompt_lists_filler_words_in_both_languages():
     assert "only" in prompt.lower() or "real meaning" in prompt.lower()
 
 
+def test_build_cleanup_prompt_includes_grammar_correction_instruction():
+    prompt = cleanup.build_cleanup_prompt("some text")
+    assert "grammar" in prompt.lower()
+    # the worked example anchors what "grammar" means here, not just the
+    # instruction's own wording
+    assert "I have went to the store" in prompt
+    assert "I went to the store" in prompt
+
+
 @patch("cleanup.requests.post")
 def test_clean_transcript_sends_correct_request_and_parses_response(mock_post):
     mock_post.return_value = Mock(

@@ -7,7 +7,7 @@ class CleanupError(Exception):
 
 STYLE_INSTRUCTIONS = {
     "professional": (
-        "7. Additionally, rewrite this into a polished, professional tone "
+        "8. Additionally, rewrite this into a polished, professional tone "
         "suitable for a work email or report: remove casual hedging like "
         "'yeah'/'probably'/'just', expand contractions, and use precise, "
         "businesslike language. Do not add new information or change the "
@@ -17,7 +17,7 @@ STYLE_INSTRUCTIONS = {
         "shipping it today, as it meets the required standard.\"\n"
     ),
     "casual": (
-        "7. Additionally, keep the tone relaxed and conversational, very "
+        "8. Additionally, keep the tone relaxed and conversational, very "
         "close to how it was actually spoken - do not formalize the "
         "wording or strip out personality, just apply the cleanup above.\n"
     ),
@@ -49,9 +49,12 @@ def build_cleanup_prompt(
         "hesitation sound), keep it - do not blanket-remove it.\n"
         "2. Add punctuation and capitalization where appropriate\n"
         "3. Fix clearly misheard words based on context\n"
-        "4. DO NOT add or remove content beyond cleaning\n"
-        "5. DO NOT TRANSLATE - output MUST be in the same language as input\n"
-        "6. Output ONLY the cleaned transcript text\n"
+        "4. Fix grammar mistakes (verb tense, subject-verb agreement, word "
+        "order, articles, etc.) without changing the meaning or the "
+        "language of the input\n"
+        "5. DO NOT add or remove content beyond cleaning\n"
+        "6. DO NOT TRANSLATE - output MUST be in the same language as input\n"
+        "7. Output ONLY the cleaned transcript text\n"
         f"{style_instruction}\n"
         "EXAMPLES:\n"
         "Input: 'ıı bugün şey çalıştım yani'\n"
@@ -60,6 +63,9 @@ def build_cleanup_prompt(
         "Input: 'so um I think, uh, we should ship it'\n"
         "Output: 'I think we should ship it.'\n"
         "(English → English, fillers removed)\n\n"
+        "Input: 'I have went to the store yesterday and I buyed some milk'\n"
+        "Output: 'I went to the store yesterday and I bought some milk.'\n"
+        "(grammar fixed, meaning and language unchanged)\n\n"
         f"{glossary_section}"
         f"TRANSCRIPT TO CLEAN:\n"
         f"---\n{raw_text}\n---\n\n"
