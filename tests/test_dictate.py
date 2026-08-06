@@ -175,3 +175,35 @@ def test_copy_last_transcript_copies_full_text(monkeypatch):
     app._copy_last_transcript(None)
 
     assert copied == ["the full dictated text"]
+
+
+def test_stop_whisper_server_if_model_changed_calls_stop_when_path_differs(monkeypatch):
+    stopped = []
+    monkeypatch.setattr(dictate.whisper_server, "stop", lambda: stopped.append(True))
+    app = _bare_app({"whisper_model_path": "/new/path.bin"})
+    app._whisper_model_path_before_edit = "/old/path.bin"
+
+    app._stop_whisper_server_if_model_changed()
+
+    assert stopped == [True]
+
+
+def test_stop_whisper_server_if_model_changed_no_op_when_path_unchanged(monkeypatch):
+    stopped = []
+    monkeypatch.setattr(dictate.whisper_server, "stop", lambda: stopped.append(True))
+    app = _bare_app({"whisper_model_path": "/same/path.bin"})
+    app._whisper_model_path_before_edit = "/same/path.bin"
+
+    app._stop_whisper_server_if_model_changed()
+
+    assert stopped == []
+
+
+def test_on_quit_stops_whisper_server(monkeypatch):
+    stopped = []
+    monkeypatch.setattr(dictate.whisper_server, "stop", lambda: stopped.append(True))
+    app = _bare_app()
+
+    app._on_quit()
+
+    assert stopped == [True]

@@ -26,6 +26,7 @@ from paste import copy_to_clipboard, paste_into_frontmost_app
 from preferences import PreferencesWindowController
 from transcribe import TranscribeError, transcribe
 from waveform import WaveformWindowController
+import whisper_server
 
 IDLE_TITLE = "🎙"
 RECORDING_TITLE = "🔴"
@@ -87,6 +88,7 @@ def _acquire_singleton_lock(lock_path: Path) -> bool:
 class DictateApp(rumps.App):
     def __init__(self):
         super().__init__("Dictify", title=IDLE_TITLE)
+        rumps.events.before_quit.register(self._on_quit)
         self.config = load_config()
         self.state = "idle"
         self._stop_event = None
@@ -152,12 +154,23 @@ class DictateApp(rumps.App):
 
     def _show_preferences(self, sender):
         self._preferences_controller = PreferencesWindowController.alloc().init()
+        self._whisper_model_path_before_edit = self.config.get("whisper_model_path")
         self._preferences_controller.configure(self.config, self._on_preferences_saved)
         self._preferences_controller.show()
 
     def _on_preferences_saved(self):
         self._refresh_all_checkmarks()
         self._restart_hotkey_listener()
+        self._stop_whisper_server_if_model_changed()
+
+    def _stop_whisper_server_if_model_changed(self):
+        if self.config.get("whisper_model_path") != getattr(
+            self, "_whisper_model_path_before_edit", None
+        ):
+            whisper_server.stop()
+
+    def _on_quit(self):
+        whisper_server.stop()
 
     def _clean_with_fallback(self, raw_text):
         final_text = raw_text
