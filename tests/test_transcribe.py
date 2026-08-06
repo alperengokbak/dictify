@@ -253,3 +253,50 @@ def test_transcribe_falls_back_to_subprocess_when_server_response_is_malformed(
     assert text == "hi"
     assert language == "en"
     assert captured  # subprocess path was actually exercised
+
+
+def test_transcribe_falls_back_to_subprocess_on_key_error_from_server_path(
+    tmp_path, monkeypatch
+):
+    # Simulates any KeyError arising while talking to the server (payload
+    # shape isn't the only thing that could raise one) - the dispatcher's
+    # except tuple must catch it and degrade to the subprocess path rather
+    # than letting it propagate.
+    wav_path = tmp_path / "some.wav"
+    wav_path.write_bytes(b"fake wav data")
+    monkeypatch.setattr(whisper_server, "ensure_running", lambda config: "http://127.0.0.1:8090")
+    captured = []
+    fake_run = _fake_run_capturing_cmd(captured, _write_minimal_output)
+
+    key_error_resp = MagicMock()
+    key_error_resp.raise_for_status = lambda: None
+    key_error_resp.json.side_effect = KeyError("text")
+
+    with patch(
+        "transcribe.requests.post", return_value=key_error_resp
+    ), patch("transcribe.subprocess.run", side_effect=fake_run):
+        text, language = transcribe.transcribe(str(wav_path), CONFIG)
+    assert text == "hi"
+    assert language == "en"
+    assert captured  # subprocess path was actually exercised
+
+
+def test_transcribe_falls_back_to_subprocess_when_server_payload_is_not_a_dict(
+    tmp_path, monkeypatch
+):
+    # A response body that's valid JSON but not an object (e.g. a bare
+    # list) has no .get() method - payload.get("text", ...) raises
+    # AttributeError, which the dispatcher must also catch.
+    wav_path = tmp_path / "some.wav"
+    wav_path.write_bytes(b"fake wav data")
+    monkeypatch.setattr(whisper_server, "ensure_running", lambda config: "http://127.0.0.1:8090")
+    captured = []
+    fake_run = _fake_run_capturing_cmd(captured, _write_minimal_output)
+
+    with patch(
+        "transcribe.requests.post", return_value=_fake_post_response(["unexpected", "list"])
+    ), patch("transcribe.subprocess.run", side_effect=fake_run):
+        text, language = transcribe.transcribe(str(wav_path), CONFIG)
+    assert text == "hi"
+    assert language == "en"
+    assert captured  # subprocess path was actually exercised
