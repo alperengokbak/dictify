@@ -9,7 +9,7 @@
         <string>/Applications/Dictify.app/Contents/MacOS/Dictify</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/alperengokbak/vsCode/general-question-for-claude/dictify</string>
+    <string>/Users/alperengokbak/vsCode/dictify</string>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
