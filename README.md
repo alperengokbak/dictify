@@ -15,16 +15,14 @@ For a brand-new machine, in order:
    git clone https://github.com/alperengokbak/dictify.git
    cd dictify
    ```
-2. **Install dependencies** — Homebrew packages, the Ollama cleanup model, the Whisper transcription model, and a Python virtualenv, all in one step:
+2. **Run the installer** — installs Homebrew packages, the Ollama cleanup model, the Whisper transcription model, a Python virtualenv, builds `Dictify.app`, and installs it to `/Applications`. Also asks if you want it to launch automatically at login.
    ```bash
    chmod +x install.sh
    ./install.sh
    ```
    Requires [Homebrew](https://brew.sh) already installed. Downloads a few hundred MB to ~1.5GB (mostly the Whisper model), so it can take a few minutes on a slow connection.
-3. **Build and run the `.app` bundle** — this is the recommended way to run it, not just an alternative: macOS ties permission prompts (Microphone, Accessibility) to a real app identity, and a bare Python process can fail to trigger them correctly or show up as "python3.11" instead of "Dictify" in System Settings. See [Run](#run) below for the build command.
-4. **Grant permissions** the first time macOS prompts you (Microphone, then Accessibility) — see [Required macOS permissions](#required-macos-permissions) if a prompt doesn't appear or paste doesn't work.
-5. **Try it:** press `⌃⌥⌘D` (the default hotkey) to start recording, speak, press it again to stop — the cleaned-up transcript pastes into whatever's focused, and you'll hear a short "Tink"/"Pop" cue on start/stop.
-6. *(Optional)* [Set it to launch automatically at login](#launch-at-login).
+3. **Grant permissions** the first time macOS prompts you (Microphone, then Accessibility) — see [Required macOS permissions](#required-macos-permissions) if a prompt doesn't appear or paste doesn't work.
+4. **Try it:** press `⌃⌥⌘D` (the default hotkey) to start recording, speak, press it again to stop — the cleaned-up transcript pastes into whatever's focused, and you'll hear a short "Tink"/"Pop" cue on start/stop.
 
 Everything below is reference detail for each of these steps.
 
@@ -34,11 +32,13 @@ Everything below is reference detail for each of these steps.
 ./install.sh
 ```
 
-This installs `whisper-cpp`, `ollama`, and `portaudio` via Homebrew, starts the Ollama service, pulls the `qwen2.5:3b` cleanup model, downloads the Whisper medium multilingual model, and sets up a Python virtualenv with the required packages.
+This installs `whisper-cpp`, `ollama`, and `portaudio` via Homebrew, starts the Ollama service, pulls the `qwen2.5:3b` cleanup model, downloads the Whisper medium multilingual model, sets up a Python virtualenv with the required packages, builds `Dictify.app` and installs it to `/Applications`, and offers to set up launch-at-login. You don't need to separately do the manual build/install/launch-agent steps documented below — this one script does all of it.
 
 ## Run
 
-**Recommended: build and run the real `.app` bundle.** macOS ties permission prompts and grants (Microphone, Accessibility) to an app's identity — a bare Python process either shows up as "python3.11" in System Settings instead of "Dictify", or can fail to trigger the permission prompt at all. Build it with:
+**`install.sh` already builds and installs `Dictify.app` for you on a fresh setup.** The commands below are for rebuilding manually after a code change, without re-running the whole installer.
+
+macOS ties permission prompts and grants (Microphone, Accessibility) to an app's identity — a bare Python process either shows up as "python3.11" in System Settings instead of "Dictify", or can fail to trigger the permission prompt at all. Build it with:
 
 ```bash
 .venv/bin/python -m pip install -r requirements.txt
@@ -63,14 +63,12 @@ Grant both under System Settings > Privacy & Security. If you run Dictify via `D
 
 ## Launch at login
 
-To have Dictify start automatically instead of running it by hand each time, install it as a per-user LaunchAgent:
+`install.sh` already offers to set this up for you (it asks the first time you run it, and silently keeps it in sync on later re-runs). To do it manually instead, install it as a per-user LaunchAgent:
 
 ```bash
-cp local.dictify.plist ~/Library/LaunchAgents/
+sed "s|__WORKING_DIRECTORY__|$(pwd)|" local.dictify.plist.template > ~/Library/LaunchAgents/local.dictify.plist
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.dictify.plist
 ```
-
-(the plist's `ProgramArguments` paths need to match wherever you actually cloned this repo — edit it first if that differs from `/Users/alperengokbak/vsCode/general-question-for-claude/dictify`)
 
 It restarts automatically if the app crashes (`KeepAlive` with `SuccessfulExit: false`), but not after you quit it deliberately via the menu bar's Quit item. Logs go to `~/Library/Logs/dictify.log` and `.err.log`.
 
