@@ -1,4 +1,5 @@
 import json
+import wave
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -300,3 +301,119 @@ def test_transcribe_falls_back_to_subprocess_when_server_payload_is_not_a_dict(
     assert text == "hi"
     assert language == "en"
     assert captured  # subprocess path was actually exercised
+
+
+def _write_wav(path, duration_secs, framerate=100):
+    """Writes a real, wave-module-readable WAV of a given playing time. The
+    deliberately low frame rate keeps the fixture at a few KB while still
+    declaring a long duration in its header - the timeout math only ever
+    looks at nframes/framerate."""
+    with wave.open(str(path), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(1)
+        wav.setframerate(framerate)
+        wav.writeframes(b"\x00" * int(duration_secs * framerate))
+
+
+def test_inference_timeout_uses_the_floor_for_short_dictation_clips(tmp_path):
+    wav_path = tmp_path / "short.wav"
+    _write_wav(wav_path, duration_secs=5)
+    assert transcribe._inference_timeout_secs(str(wav_path)) == (
+        transcribe.INFERENCE_TIMEOUT_FLOOR_SECS
+    )
+
+
+def test_inference_timeout_scales_with_long_audio(tmp_path):
+    # Regression test: a flat 30s timeout made "Transcribe File..." strictly
+    # worse for long audio - it burned the timeout AND then paid the full
+    # whisper-cli cost on top.
+    wav_path = tmp_path / "long.wav"
+    _write_wav(wav_path, duration_secs=600)  # 10 minutes of audio
+    timeout = transcribe._inference_timeout_secs(str(wav_path))
+    assert timeout > transcribe.INFERENCE_TIMEOUT_FLOOR_SECS
+    assert timeout == 600 * transcribe.INFERENCE_TIMEOUT_PER_AUDIO_SEC
+
+
+def test_inference_timeout_falls_back_to_the_floor_for_an_unreadable_wav(tmp_path):
+    wav_path = tmp_path / "not-really.wav"
+    wav_path.write_bytes(b"fake wav data")
+    assert transcribe._inference_timeout_secs(str(wav_path)) == (
+        transcribe.INFERENCE_TIMEOUT_FLOOR_SECS
+    )
+
+
+def test_inference_timeout_falls_back_to_the_floor_for_an_empty_wav(tmp_path):
+    # A zero-byte file makes the wave module raise EOFError, not wave.Error.
+    wav_path = tmp_path / "empty.wav"
+    wav_path.write_bytes(b"")
+    assert transcribe._inference_timeout_secs(str(wav_path)) == (
+        transcribe.INFERENCE_TIMEOUT_FLOOR_SECS
+    )
+
+
+def test_inference_timeout_falls_back_to_the_floor_for_a_missing_wav(tmp_path):
+    assert transcribe._inference_timeout_secs(str(tmp_path / "gone.wav")) == (
+        transcribe.INFERENCE_TIMEOUT_FLOOR_SECS
+    )
+
+
+def test_transcribe_via_server_sends_a_duration_scaled_timeout(tmp_path):
+    wav_path = tmp_path / "long.wav"
+    _write_wav(wav_path, duration_secs=600)
+    with patch(
+        "transcribe.requests.post",
+        return_value=_fake_post_response({"text": "hi", "language": "english"}),
+    ) as mock_post:
+        transcribe._transcribe_via_server(str(wav_path), "http://127.0.0.1:8090", CONFIG)
+    assert mock_post.call_args.kwargs["timeout"] == (
+        600 * transcribe.INFERENCE_TIMEOUT_PER_AUDIO_SEC
+    )
+
+
+def test_transcribe_falls_back_to_subprocess_when_the_wav_cannot_be_opened(
+    tmp_path, monkeypatch
+):
+    # open(wav_path, "rb") lives inside _transcribe_via_server but outside
+    # requests' own exception hierarchy - a FileNotFoundError/PermissionError
+    # there must degrade to the subprocess path, not escape as a bare OSError.
+    missing_wav = str(tmp_path / "never-written.wav")
+    monkeypatch.setattr(whisper_server, "ensure_running", lambda config: "http://127.0.0.1:8090")
+    captured = []
+    fake_run = _fake_run_capturing_cmd(captured, _write_minimal_output)
+    with patch("transcribe.subprocess.run", side_effect=fake_run):
+        text, language = transcribe.transcribe(missing_wav, CONFIG)
+    assert text == "hi"
+    assert language == "en"
+    assert captured  # subprocess path was actually exercised
+
+
+def test_transcribe_prints_a_diagnostic_before_falling_back(tmp_path, monkeypatch, capsys):
+    # A permanently-failing server path is otherwise invisible: the app just
+    # silently stays slow forever, with nothing in dictify.err.log to say why.
+    wav_path = tmp_path / "some.wav"
+    wav_path.write_bytes(b"fake wav data")
+
+    def _raise_server_error(config):
+        raise whisper_server.WhisperServerError("cooldown")
+
+    monkeypatch.setattr(whisper_server, "ensure_running", _raise_server_error)
+    captured = []
+    fake_run = _fake_run_capturing_cmd(captured, _write_minimal_output)
+    with patch("transcribe.subprocess.run", side_effect=fake_run):
+        transcribe.transcribe(str(wav_path), CONFIG)
+
+    stderr = capsys.readouterr().err
+    assert "[dictify diag]" in stderr
+    assert "WhisperServerError" in stderr
+
+
+def test_transcribe_prints_no_diagnostic_when_the_server_path_works(tmp_path, monkeypatch, capsys):
+    wav_path = tmp_path / "some.wav"
+    wav_path.write_bytes(b"fake wav data")
+    monkeypatch.setattr(whisper_server, "ensure_running", lambda config: "http://127.0.0.1:8090")
+    with patch(
+        "transcribe.requests.post",
+        return_value=_fake_post_response({"text": "hi", "language": "english"}),
+    ):
+        transcribe.transcribe(str(wav_path), CONFIG)
+    assert "[dictify diag]" not in capsys.readouterr().err

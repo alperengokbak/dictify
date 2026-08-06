@@ -1,6 +1,8 @@
 import json
 import subprocess
+import sys
 import tempfile
+import wave
 from pathlib import Path
 
 import requests
@@ -8,6 +10,12 @@ import requests
 import whisper_server
 
 _LANGUAGE_NAME_TO_CODE = {"english": "en", "turkish": "tr"}
+
+# Server-side inference time scales with audio length, so a flat timeout would
+# make "Transcribe File..." strictly worse for long files: it would burn the
+# whole timeout and THEN pay the full whisper-cli cost on top.
+INFERENCE_TIMEOUT_FLOOR_SECS = 30
+INFERENCE_TIMEOUT_PER_AUDIO_SEC = 2
 
 
 class TranscribeError(Exception):
@@ -30,16 +38,37 @@ def transcribe(wav_path: str, config: dict) -> tuple[str, str]:
     except (
         whisper_server.WhisperServerError,
         requests.RequestException,
+        OSError,
         ValueError,
         KeyError,
         AttributeError,
-    ):
+    ) as exc:
         # Falls back on ANY server-path failure, not just connection-level
         # ones - a malformed/unexpected JSON response (ValueError/KeyError/
-        # AttributeError) should degrade to the subprocess path exactly
-        # like a connection failure would, same defensive stance cleanup.py
-        # already takes for its own Ollama response parsing.
+        # AttributeError) or an unreadable wav (OSError) should degrade to
+        # the subprocess path exactly like a connection failure would, same
+        # defensive stance cleanup.py already takes for its own Ollama
+        # response parsing. Logged because a permanently-failing server path
+        # is otherwise invisible - the app just silently stays slow.
+        print(
+            f"[dictify diag] whisper-server path failed ({exc!r}); falling back to subprocess",
+            file=sys.stderr,
+        )
         return _transcribe_via_subprocess(wav_path, config)
+
+
+def _inference_timeout_secs(wav_path: str) -> float:
+    """Scales the server request timeout with the audio's own length - live
+    dictation clips keep the 30s floor, a 20-minute file gets 40 minutes."""
+    try:
+        with wave.open(wav_path, "rb") as wav:
+            frame_rate = wav.getframerate()
+            duration = wav.getnframes() / frame_rate if frame_rate else 0
+    except (OSError, wave.Error, EOFError):
+        # Unreadable/truncated/not-a-wav: the timeout is a safety net, not a
+        # reason to fail the transcription - fall back to the floor.
+        return INFERENCE_TIMEOUT_FLOOR_SECS
+    return max(INFERENCE_TIMEOUT_FLOOR_SECS, duration * INFERENCE_TIMEOUT_PER_AUDIO_SEC)
 
 
 def _transcribe_via_server(wav_path: str, base_url: str, config: dict) -> tuple[str, str]:
@@ -56,7 +85,7 @@ def _transcribe_via_server(wav_path: str, base_url: str, config: dict) -> tuple[
             f"{base_url}/inference",
             files={"file": f},
             data=data,
-            timeout=30,
+            timeout=_inference_timeout_secs(wav_path),
         )
     resp.raise_for_status()
     payload = resp.json()
