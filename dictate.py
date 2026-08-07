@@ -172,11 +172,11 @@ class DictateApp(rumps.App):
     def _on_quit(self):
         whisper_server.stop()
 
-    def _clean_with_fallback(self, raw_text):
+    def _clean_with_fallback(self, raw_text, language=None):
         final_text = raw_text
         if self.config.get("cleanup_enabled", True):
             try:
-                final_text = clean_transcript(raw_text, self.config)
+                final_text = clean_transcript(raw_text, self.config, language=language)
             except CleanupError as exc:
                 rumps.notification(
                     "Dictify", "Cleanup failed, using raw transcript", str(exc)
@@ -211,7 +211,7 @@ class DictateApp(rumps.App):
     def _run_file_transcription(self, input_path):
         try:
             raw_text, language = transcribe_file(input_path, self.config)
-            final_text = self._clean_with_fallback(raw_text)
+            final_text = self._clean_with_fallback(raw_text, language=language)
             self._update_last_transcript_item(final_text)
 
             output_path = Path(input_path).with_suffix(".txt")
@@ -400,7 +400,7 @@ class DictateApp(rumps.App):
             if not raw_text:
                 return
 
-            final_text = self._clean_with_fallback(raw_text)
+            final_text = self._clean_with_fallback(raw_text, language=language)
 
             self._update_last_transcript_item(final_text)
 

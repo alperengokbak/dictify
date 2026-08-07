@@ -282,3 +282,24 @@ def test_stop_whisper_server_if_model_changed_stops_when_no_snapshot_was_taken(m
     app._stop_whisper_server_if_model_changed()
 
     assert stopped == [True]
+
+
+def test_clean_with_fallback_forwards_detected_language_to_clean_transcript(monkeypatch):
+    # Regression: Whisper detects the spoken language correctly (confirmed
+    # live via history.jsonl, both entries tagged "en"), but that fact was
+    # never passed to the cleanup step, leaving the small local cleanup
+    # model to infer language from text alone - it drifted into Turkish
+    # on long/rambling English input despite the "DO NOT TRANSLATE"
+    # instruction. The detected language must reach clean_transcript.
+    received = {}
+
+    def _fake_clean_transcript(raw_text, config, language=None):
+        received["language"] = language
+        return raw_text
+
+    monkeypatch.setattr(dictate, "clean_transcript", _fake_clean_transcript)
+    app = _bare_app({"cleanup_enabled": True})
+
+    app._clean_with_fallback("some text", language="en")
+
+    assert received["language"] == "en"

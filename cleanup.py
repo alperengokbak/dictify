@@ -5,6 +5,11 @@ class CleanupError(Exception):
     pass
 
 
+# Maps Whisper's detected language codes to names for the prompt anchor
+# below. "auto"/"unknown"/unrecognized codes fall back to no anchor at all
+# rather than a wrong or confusing one.
+LANGUAGE_NAMES = {"en": "English", "tr": "Turkish"}
+
 STYLE_INSTRUCTIONS = {
     "professional": (
         "8. Additionally, rewrite this into a polished, professional tone "
@@ -25,7 +30,10 @@ STYLE_INSTRUCTIONS = {
 
 
 def build_cleanup_prompt(
-    raw_text: str, glossary: list[str] | None = None, style: str = "default"
+    raw_text: str,
+    glossary: list[str] | None = None,
+    style: str = "default",
+    language: str | None = None,
 ) -> str:
     glossary_section = ""
     if glossary:
@@ -36,9 +44,23 @@ def build_cleanup_prompt(
             f"{', '.join(glossary)}\n\n"
         )
     style_instruction = STYLE_INSTRUCTIONS.get(style, "")
+    # Whisper already knows the spoken language for certain - anchor that
+    # fact explicitly instead of leaving the model to infer it from the
+    # text alone, which has been observed to drift wrong on long/rambling
+    # input even with the "DO NOT TRANSLATE" instruction already present.
+    language_name = LANGUAGE_NAMES.get(language)
+    language_anchor = (
+        f"**The speech recognizer detected this transcript's spoken "
+        f"language as: {language_name}. Your output MUST be in "
+        f"{language_name} - do not switch languages under any "
+        f"circumstances.**\n"
+        if language_name
+        else ""
+    )
     return (
         "**CRITICAL: DO NOT TRANSLATE. RESPOND ONLY IN THE ORIGINAL LANGUAGE OF THE INPUT.**\n"
-        "**NEVER OUTPUT ENGLISH FOR TURKISH INPUT. NEVER OUTPUT ENGLISH FOR ANY NON-ENGLISH INPUT.**\n\n"
+        "**NEVER OUTPUT ENGLISH FOR TURKISH INPUT. NEVER OUTPUT ENGLISH FOR ANY NON-ENGLISH INPUT.**\n"
+        f"{language_anchor}\n"
         "Your task: Clean up a raw speech-to-text transcript.\n"
         "Instructions:\n"
         "1. Remove verbal fillers and hesitation sounds people use while "
@@ -73,7 +95,7 @@ def build_cleanup_prompt(
     )
 
 
-def clean_transcript(raw_text: str, config: dict) -> str:
+def clean_transcript(raw_text: str, config: dict, language: str | None = None) -> str:
     url = f"{config['ollama_url']}/api/generate"
     payload = {
         "model": config["ollama_model"],
@@ -81,6 +103,7 @@ def clean_transcript(raw_text: str, config: dict) -> str:
             raw_text,
             glossary=config.get("glossary"),
             style=config.get("style", "default"),
+            language=language,
         ),
         "stream": False,
         "keep_alive": "30m",

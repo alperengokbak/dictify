@@ -91,6 +91,44 @@ def test_build_cleanup_prompt_includes_grammar_correction_instruction():
     assert "I went to the store" in prompt
 
 
+def test_build_cleanup_prompt_anchors_detected_language_when_known():
+    # Regression: observed live (2026-08-06) - the model drifted into
+    # Turkish, or garbled both languages together, on long/rambling
+    # English input, despite the "DO NOT TRANSLATE" instruction already
+    # present. history.jsonl showed Whisper had detected "en" correctly
+    # both times - the language just never reached the cleanup prompt,
+    # leaving a small local model to infer it from content alone. Anchor
+    # the already-known language explicitly instead of relying on
+    # inference.
+    prompt = cleanup.build_cleanup_prompt("some text", language="en")
+    assert "English" in prompt
+    assert "MUST be in English" in prompt
+
+
+def test_build_cleanup_prompt_maps_tr_code_to_turkish_name():
+    prompt = cleanup.build_cleanup_prompt("some text", language="tr")
+    assert "Turkish" in prompt
+    assert "MUST be in Turkish" in prompt
+
+
+def test_build_cleanup_prompt_omits_language_anchor_when_language_unknown():
+    for unknown_language in (None, "auto", "unknown"):
+        prompt = cleanup.build_cleanup_prompt("some text", language=unknown_language)
+        assert "speech recognizer detected" not in prompt
+
+
+@patch("cleanup.requests.post")
+def test_clean_transcript_passes_detected_language_into_prompt(mock_post):
+    mock_post.return_value = Mock(json=lambda: {"response": "cleaned"})
+    mock_post.return_value.raise_for_status = lambda: None
+
+    cleanup.clean_transcript("some text", CONFIG, language="en")
+
+    _called_args, called_kwargs = mock_post.call_args
+    sent_prompt = called_kwargs["json"]["prompt"]
+    assert "MUST be in English" in sent_prompt
+
+
 @patch("cleanup.requests.post")
 def test_clean_transcript_sends_correct_request_and_parses_response(mock_post):
     mock_post.return_value = Mock(
