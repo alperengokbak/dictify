@@ -18,8 +18,8 @@
         <false/>
     </dict>
     <key>StandardOutPath</key>
-    <string>/Users/alperengokbak/Library/Logs/dictify.log</string>
+    <string>__LOG_DIR__/dictify.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/alperengokbak/Library/Logs/dictify.err.log</string>
+    <string>__LOG_DIR__/dictify.err.log</string>
 </dict>
 </plist>

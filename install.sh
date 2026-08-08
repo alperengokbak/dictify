@@ -44,7 +44,10 @@ LAUNCH_AGENT_PATH="$HOME/Library/LaunchAgents/local.dictify.plist"
 
 install_launch_agent() {
   echo "==> Installing launch-at-login"
-  sed "s|__WORKING_DIRECTORY__|$REPO_DIR|" local.dictify.plist.template > "$LAUNCH_AGENT_PATH"
+  LOG_DIR="$HOME/Library/Logs"
+  mkdir -p "$LOG_DIR"
+  sed -e "s|__WORKING_DIRECTORY__|$REPO_DIR|" -e "s|__LOG_DIR__|$LOG_DIR|" \
+    local.dictify.plist.template > "$LAUNCH_AGENT_PATH"
   launchctl bootout "gui/$(id -u)/local.dictify" 2>/dev/null || true
   launchctl bootstrap "gui/$(id -u)" "$LAUNCH_AGENT_PATH"
 }
