@@ -1,3 +1,4 @@
+import os
 import subprocess
 import time
 
@@ -19,7 +20,16 @@ _KVK_ANSI_V = 0x09
 
 
 def copy_to_clipboard(text: str) -> None:
-    subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=True)
+    # pbcopy decodes stdin using the process's locale (LC_CTYPE) to build the
+    # pasteboard string. Dictify normally runs as a launchd LaunchAgent (see
+    # local.dictify.plist.template), whose environment has no LANG/LC_CTYPE
+    # set at all, so pbcopy falls back to misreading multi-byte UTF-8
+    # sequences byte-by-byte - e.g. turning a curly apostrophe into "‚Äô"
+    # mojibake. Forcing LC_CTYPE=UTF-8 here makes the decoding correct
+    # regardless of what locale (if any) the parent process was started
+    # with.
+    env = {**os.environ, "LC_CTYPE": "UTF-8"}
+    subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=True, env=env)
 
 
 def paste_into_frontmost_app(delay_s: float = 0.05) -> None:
