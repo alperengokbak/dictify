@@ -184,3 +184,56 @@ def test_clean_transcript_sets_keep_alive_to_avoid_cold_reload(mock_post):
 
     _called_args, called_kwargs = mock_post.call_args
     assert called_kwargs["json"]["keep_alive"] == "30m"
+
+
+def test_build_cleanup_prompt_instructs_no_wrapping_quotation_marks():
+    prompt = cleanup.build_cleanup_prompt("some text")
+    assert "quotation mark" in prompt.lower()
+
+
+@patch("cleanup.requests.post")
+def test_clean_transcript_strips_quotes_the_model_added(mock_post):
+    # Regression: observed live (2026-08-09) via history.jsonl - the
+    # cleanup model sometimes wraps its whole answer in quotation marks
+    # that were never in the raw Whisper transcript, e.g. "Hello there"
+    # comes back as '"Hello there."'. 4 of 71 real dictations hit this.
+    mock_post.return_value = Mock(json=lambda: {"response": '"Hello there."'})
+    mock_post.return_value.raise_for_status = lambda: None
+
+    result = cleanup.clean_transcript("Hello there", CONFIG)
+
+    assert result == "Hello there."
+
+
+@patch("cleanup.requests.post")
+def test_clean_transcript_keeps_quotes_already_present_in_raw_text(mock_post):
+    # If the user's own dictation was genuinely quoted speech, the quotes
+    # are real content - only strip a pair the model itself introduced.
+    mock_post.return_value = Mock(json=lambda: {"response": '"Hello there."'})
+    mock_post.return_value.raise_for_status = lambda: None
+
+    result = cleanup.clean_transcript('"Hello there"', CONFIG)
+
+    assert result == '"Hello there."'
+
+
+@patch("cleanup.requests.post")
+def test_clean_transcript_leaves_unquoted_response_unchanged(mock_post):
+    mock_post.return_value = Mock(json=lambda: {"response": "Hello there."})
+    mock_post.return_value.raise_for_status = lambda: None
+
+    result = cleanup.clean_transcript("Hello there", CONFIG)
+
+    assert result == "Hello there."
+
+
+@patch("cleanup.requests.post")
+def test_clean_transcript_does_not_strip_a_single_leading_quote(mock_post):
+    # Not a wrapping pair (no matching closing quote) - must be left alone
+    # rather than mangled by a naive first/last-char strip.
+    mock_post.return_value = Mock(json=lambda: {"response": '"He said hi'})
+    mock_post.return_value.raise_for_status = lambda: None
+
+    result = cleanup.clean_transcript("He said hi", CONFIG)
+
+    assert result == '"He said hi'

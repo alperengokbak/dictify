@@ -10,6 +10,30 @@ class CleanupError(Exception):
 # rather than a wrong or confusing one.
 LANGUAGE_NAMES = {"en": "English", "tr": "Turkish"}
 
+# Matching wrapping-quote pairs the cleanup model has been observed to add
+# around its whole answer (straight and curly, single and double).
+_QUOTE_PAIRS = {'"': '"', "'": "'", "“": "”", "‘": "’"}
+
+
+def _strip_added_wrapping_quotes(cleaned: str, raw_text: str) -> str:
+    """The cleanup model sometimes wraps its entire answer in quotation
+    marks that were never in the raw Whisper transcript - observed live
+    (2026-08-09) via history.jsonl, e.g. "Hello there" comes back as
+    '"Hello there."'. The prompt now asks it not to, but small local models
+    don't reliably follow every instruction, so also strip a wrapping pair
+    defensively. Only strips when the raw transcript did NOT already start
+    and end with the same quote character, so genuinely quoted speech in
+    the original dictation is left untouched."""
+    if len(cleaned) < 2:
+        return cleaned
+    open_q, close_q = cleaned[0], cleaned[-1]
+    if _QUOTE_PAIRS.get(open_q) != close_q:
+        return cleaned
+    raw_stripped = raw_text.strip()
+    if raw_stripped[:1] == open_q and raw_stripped[-1:] == close_q:
+        return cleaned
+    return cleaned[1:-1].strip()
+
 STYLE_INSTRUCTIONS = {
     "professional": (
         "8. Additionally, rewrite this into a polished, professional tone "
@@ -76,7 +100,8 @@ def build_cleanup_prompt(
         "language of the input\n"
         "5. DO NOT add or remove content beyond cleaning\n"
         "6. DO NOT TRANSLATE - output MUST be in the same language as input\n"
-        "7. Output ONLY the cleaned transcript text\n"
+        "7. Output ONLY the cleaned transcript text - do not wrap it in "
+        "quotation marks and do not add labels or commentary\n"
         f"{style_instruction}\n"
         "EXAMPLES:\n"
         "Input: 'ıı bugün şey çalıştım yani'\n"
@@ -127,4 +152,4 @@ def clean_transcript(raw_text: str, config: dict, language: str | None = None) -
         text = text.strip()
     except (AttributeError, TypeError) as exc:
         raise CleanupError(f"Ollama returned unexpected response shape: {exc}") from exc
-    return text
+    return _strip_added_wrapping_quotes(text, raw_text)
