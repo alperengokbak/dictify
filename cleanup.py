@@ -1,3 +1,5 @@
+import re
+
 import requests
 
 
@@ -33,6 +35,40 @@ def _strip_added_wrapping_quotes(cleaned: str, raw_text: str) -> str:
     if raw_stripped[:1] == open_q and raw_stripped[-1:] == close_q:
         return cleaned
     return cleaned[1:-1].strip()
+
+
+# Markdown the cleanup model has been observed to add around a word it
+# "fixed" or considers notable. Ordered longest-marker-first so ** is
+# consumed before *, otherwise "**x**" would unwrap to "*x*".
+#
+# Each pattern requires a non-word character (or string edge) just outside
+# the markers: real emphasis sits at a word boundary, while a marker glued
+# between alphanumerics is something else entirely - "2*3*4" is arithmetic,
+# and unwrapping it to "234" would silently corrupt a number.
+_MARKDOWN_SPANS = (
+    ("**", re.compile(r"(?<![\w*])\*\*(?=\S)(.+?)(?<=\S)\*\*(?![\w*])", re.S)),
+    ("__", re.compile(r"(?<![\w_])__(?=\S)(.+?)(?<=\S)__(?![\w_])", re.S)),
+    ("*", re.compile(r"(?<![\w*])\*(?=\S)([^*]+?)(?<=\S)\*(?![\w*])")),
+    ("`", re.compile(r"(?<![\w`])`(?=\S)([^`]+?)(?<=\S)`(?![\w`])")),
+)
+
+
+def _strip_added_markdown(cleaned: str, raw_text: str) -> str:
+    """Speech has no markdown in it, but the cleanup model sometimes
+    emphasises a word it corrected - observed live (2026-08-12) via
+    history.jsonl, e.g. "So every issue issues are solved" came back as
+    "So every issue **are** solved" and was pasted with the asterisks
+    into a chat message. Unwraps such spans, keeping the text inside.
+
+    Only strips a marker the raw transcript didn't contain itself, on the
+    same principle as _strip_added_wrapping_quotes: if the speaker somehow
+    did dictate the symbol, it's content and stays."""
+    for marker, pattern in _MARKDOWN_SPANS:
+        if marker in raw_text:
+            continue
+        cleaned = pattern.sub(r"\1", cleaned)
+    return cleaned
+
 
 STYLE_INSTRUCTIONS = {
     "professional": (
@@ -105,7 +141,10 @@ def build_cleanup_prompt(
         "the filler words in rule 1 get removed; complete thoughts never do.\n"
         "6. DO NOT TRANSLATE - output MUST be in the same language as input\n"
         "7. Output ONLY the cleaned transcript text - do not wrap it in "
-        "quotation marks and do not add labels or commentary\n"
+        "quotation marks, do not add labels or commentary, and do not add "
+        "any markdown formatting. The speaker is dictating plain text: no "
+        "**bold**, no *italics*, no `backticks`, no headings and no bullet "
+        "points, not even around a word you corrected.\n"
         f"{style_instruction}\n"
         "EXAMPLES:\n"
         # Every other example here shows the output coming back shorter than
@@ -166,4 +205,5 @@ def clean_transcript(raw_text: str, config: dict, language: str | None = None) -
         text = text.strip()
     except (AttributeError, TypeError) as exc:
         raise CleanupError(f"Ollama returned unexpected response shape: {exc}") from exc
-    return _strip_added_wrapping_quotes(text, raw_text)
+    text = _strip_added_wrapping_quotes(text, raw_text)
+    return _strip_added_markdown(text, raw_text)

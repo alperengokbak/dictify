@@ -268,3 +268,64 @@ def test_clean_transcript_does_not_strip_a_single_leading_quote(mock_post):
     result = cleanup.clean_transcript("He said hi", CONFIG)
 
     assert result == '"He said hi'
+
+
+def test_build_cleanup_prompt_instructs_no_markdown_formatting():
+    prompt = cleanup.build_cleanup_prompt("some text").lower()
+    assert "markdown" in prompt
+
+
+@patch("cleanup.requests.post")
+def test_clean_transcript_strips_markdown_the_model_added(mock_post):
+    # Regression: observed live (2026-08-12) via history.jsonl - the cleanup
+    # model sometimes emphasises a word it "fixed" using markdown that was
+    # never spoken, e.g. "So every issue issues are solved" came back as
+    # "So every issue **are** solved" and got pasted with the asterisks
+    # into a chat message. 3 of 181 real dictations hit this (**are**,
+    # **hold**, `.md`). Same family as the wrapping-quote habit above, so
+    # the same two-layer defence: instruct against it AND strip it.
+    mock_post.return_value = Mock(json=lambda: {"response": "So every issue **are** solved."})
+    mock_post.return_value.raise_for_status = lambda: None
+    result = cleanup.clean_transcript("So every issue issues are solved", CONFIG)
+    assert result == "So every issue are solved."
+
+
+@patch("cleanup.requests.post")
+def test_clean_transcript_strips_added_backtick_code_spans(mock_post):
+    mock_post.return_value = Mock(json=lambda: {"response": "please update the `.md` file"})
+    mock_post.return_value.raise_for_status = lambda: None
+    result = cleanup.clean_transcript("please update the .md file", CONFIG)
+    assert result == "please update the .md file"
+
+
+@patch("cleanup.requests.post")
+def test_clean_transcript_keeps_markers_already_present_in_raw_text(mock_post):
+    # If the speaker genuinely dictated the symbol, it is content, not
+    # formatting - leave it alone exactly like the quote-stripping does.
+    mock_post.return_value = Mock(json=lambda: {"response": "the file is called *starred*."})
+    mock_post.return_value.raise_for_status = lambda: None
+    result = cleanup.clean_transcript("the file is called *starred*", CONFIG)
+    assert result == "the file is called *starred*."
+
+
+@patch("cleanup.requests.post")
+def test_clean_transcript_leaves_unformatted_response_unchanged(mock_post):
+    mock_post.return_value = Mock(json=lambda: {"response": "Nothing special about this one."})
+    mock_post.return_value.raise_for_status = lambda: None
+    result = cleanup.clean_transcript("nothing special about this one", CONFIG)
+    assert result == "Nothing special about this one."
+
+
+def test_strip_added_markdown_leaves_arithmetic_alone():
+    # "*" between digits is multiplication, not emphasis. The unwrapping
+    # rule must require a non-word character on the outside of the marker,
+    # otherwise "2*3*4" silently becomes "234" - a number-corrupting bug
+    # that would be very easy to miss in a pasted message.
+    assert cleanup._strip_added_markdown("2*3*4", "two times three times four") == "2*3*4"
+    assert cleanup._strip_added_markdown("a**b**c", "a b c") == "a**b**c"
+
+
+def test_strip_added_markdown_still_unwraps_normal_emphasis():
+    assert cleanup._strip_added_markdown("a **bold** word", "a bold word") == "a bold word"
+    assert cleanup._strip_added_markdown("the `.md` file", "the .md file") == "the .md file"
+    assert cleanup._strip_added_markdown("**Whole thing.**", "whole thing") == "Whole thing."
