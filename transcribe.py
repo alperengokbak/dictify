@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -10,6 +11,31 @@ import requests
 import whisper_server
 
 _LANGUAGE_NAME_TO_CODE = {"english": "en", "turkish": "tr"}
+
+# Whisper annotates non-speech audio with bracketed tags - "[BLANK_AUDIO]",
+# "[inaudible]", "(banging)" - and emits them as their own segments. They are
+# not speech and must never reach the paste buffer: observed live via
+# history.jsonl, a silent recording came through as a literal "[BLANK_AUDIO]"
+# pasted into whatever the user was typing in.
+#
+# Deliberately only matches a segment that is ENTIRELY one bracketed run.
+# Stripping bracketed text anywhere would eat real speech - "I installed
+# English (UK) and English (US)" is genuine content, not an annotation.
+# Known limitation: an annotation Whisper packs into the same segment as
+# real speech survives this. Every case seen so far has been its own
+# segment, so this stays conservative rather than guessing at the rest.
+_ARTIFACT_SEGMENT_RE = re.compile(r"^[\[(][^\[\]()]*[\])]$")
+
+
+def _join_segment_text(segments) -> str:
+    """Joins Whisper's segments into one line, dropping non-speech
+    annotation segments. Returns "" if there was no actual speech, which
+    dictate.py already treats as "nothing to paste"."""
+    return " ".join(
+        stripped
+        for stripped in (seg["text"].strip() for seg in segments)
+        if stripped and not _ARTIFACT_SEGMENT_RE.match(stripped)
+    ).strip()
 
 # Server-side inference time scales with audio length, so a flat timeout would
 # make "Transcribe File..." strictly worse for long files: it would burn the
@@ -26,7 +52,7 @@ def _parse_whisper_json(json_path: str) -> tuple[str, str]:
     with open(json_path) as f:
         data = json.load(f)
     segments = data.get("transcription", [])
-    text = " ".join(seg["text"].strip() for seg in segments).strip()
+    text = _join_segment_text(segments)
     language = data.get("result", {}).get("language", "unknown")
     return text, language
 
@@ -96,7 +122,7 @@ def _transcribe_via_server(wav_path: str, base_url: str, config: dict) -> tuple[
     # one continuous sentence. Reconstruct from "segments" instead, exactly
     # like _parse_whisper_json already does for the subprocess path.
     segments = payload.get("segments", [])
-    text = " ".join(seg["text"].strip() for seg in segments).strip()
+    text = _join_segment_text(segments)
     language = payload.get("language", "unknown").lower()
     language = _LANGUAGE_NAME_TO_CODE.get(language, language)
     return text, language

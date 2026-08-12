@@ -476,3 +476,94 @@ def test_transcribe_prints_no_diagnostic_when_the_server_path_works(tmp_path, mo
     ):
         transcribe.transcribe(str(wav_path), CONFIG)
     assert "[dictify diag]" not in capsys.readouterr().err
+
+
+def test_parse_whisper_json_drops_non_speech_artifact_segments():
+    # Regression: observed live (2026-08-12) via history.jsonl - Whisper
+    # emits non-speech annotations as their own segments and they were
+    # being joined into the transcript like real speech, then pasted into
+    # whatever the user was typing in. Four real dictations were affected:
+    # two were nothing but "[BLANK_AUDIO]"/"[inaudible]", one had
+    # "(banging)" appended after a full paragraph, one had a trailing
+    # "[BLANK_AUDIO]" that only got removed because the cleanup model
+    # happened to drop it - which is not a guarantee (see the fallback
+    # test below).
+    text, lang = transcribe._parse_whisper_json(
+        str(FIXTURES / "whisper_output_artifacts.json")
+    )
+    assert text == "Under the old prompt this was the shape that got collapsed."
+    assert lang == "en"
+
+
+def test_transcribe_via_server_drops_non_speech_artifact_segments(tmp_path):
+    # Same artifact stripping must apply to the server path, not just the
+    # subprocess path - the server path is the one live dictation actually
+    # uses, and it was where the observed "[BLANK_AUDIO]" cases came from.
+    wav_path = tmp_path / "some.wav"
+    wav_path.write_bytes(b"fake wav data")
+    with patch(
+        "transcribe.requests.post",
+        return_value=_fake_post_response(
+            {
+                "text": "ignored",
+                "language": "english",
+                "segments": [
+                    {"text": " Can we also see these differences?"},
+                    {"text": " (banging)"},
+                ],
+            }
+        ),
+    ):
+        text, _language = transcribe._transcribe_via_server(
+            str(wav_path), "http://127.0.0.1:8090", CONFIG
+        )
+    assert text == "Can we also see these differences?"
+
+
+def test_transcribe_returns_empty_when_every_segment_is_an_artifact(tmp_path):
+    # Two of the four real cases were a recording containing no speech at
+    # all, transcribed as nothing but "[BLANK_AUDIO]" / "[inaudible]" and
+    # then pasted verbatim. Stripping must leave an empty string here, not
+    # a stray bracket or whitespace - dictate.py's `if not raw_text: return`
+    # then makes the whole dictation a clean no-op instead of a bad paste.
+    wav_path = tmp_path / "some.wav"
+    wav_path.write_bytes(b"fake wav data")
+    with patch(
+        "transcribe.requests.post",
+        return_value=_fake_post_response(
+            {
+                "text": "ignored",
+                "language": "english",
+                "segments": [{"text": " [BLANK_AUDIO]"}, {"text": " [inaudible]"}],
+            }
+        ),
+    ):
+        text, _language = transcribe._transcribe_via_server(
+            str(wav_path), "http://127.0.0.1:8090", CONFIG
+        )
+    assert text == ""
+
+
+def test_transcribe_keeps_parentheses_that_are_part_of_real_speech(tmp_path):
+    # The stripping rule must only fire on a segment that is ENTIRELY one
+    # bracketed annotation. A parenthetical inside a real spoken sentence
+    # is genuine content and must survive untouched - dropping every
+    # bracketed run would silently eat the user's own words.
+    wav_path = tmp_path / "some.wav"
+    wav_path.write_bytes(b"fake wav data")
+    with patch(
+        "transcribe.requests.post",
+        return_value=_fake_post_response(
+            {
+                "text": "ignored",
+                "language": "english",
+                "segments": [
+                    {"text": " I installed English (UK) and English (US)."},
+                ],
+            }
+        ),
+    ):
+        text, _language = transcribe._transcribe_via_server(
+            str(wav_path), "http://127.0.0.1:8090", CONFIG
+        )
+    assert text == "I installed English (UK) and English (US)."
