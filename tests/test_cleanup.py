@@ -191,6 +191,37 @@ def test_build_cleanup_prompt_instructs_no_wrapping_quotation_marks():
     assert "quotation mark" in prompt.lower()
 
 
+def test_build_cleanup_prompt_forbids_dropping_whole_sentences():
+    # Regression: observed live (2026-08-12) via history.jsonl - 8 of 176
+    # real dictations came back with entire clauses or sentences missing,
+    # e.g. "And if the latest version does not work properly, then we can
+    # execute git revert ... Am I right?" was pasted as just "Am I right?".
+    # Replaying those transcripts through the real model reproduced it
+    # 3/3 times each, so it is a deterministic prompt-following failure,
+    # not sampling noise. The bare "DO NOT add or remove content beyond
+    # cleaning" was too weak to counteract the shortening pattern the
+    # worked examples demonstrate - qwen2.5:3b generalised it into
+    # "drop the context and keep the point".
+    prompt = cleanup.build_cleanup_prompt("some text").lower()
+    assert "summarize" in prompt or "condense" in prompt
+    # the failure mode is specifically dropping background/lead-in clauses,
+    # so the instruction has to name that case rather than stay generic
+    assert "context" in prompt
+    assert "clause" in prompt
+
+
+def test_build_cleanup_prompt_includes_content_preservation_example():
+    # Strengthening the instruction alone did not hold (a rephrased rule 5
+    # without this example still dropped a sentence in 4 of the 12 replayed
+    # cases, including a Turkish one). Every other worked example in the
+    # prompt shows the output getting *shorter* than the input; this one
+    # exists to demonstrate the opposite - a multi-clause transcript coming
+    # back whole - so the examples stop teaching "shorter is better".
+    prompt = cleanup.build_cleanup_prompt("some text")
+    assert "Am I right?" in prompt
+    assert "every clause kept" in prompt.lower()
+
+
 @patch("cleanup.requests.post")
 def test_clean_transcript_strips_quotes_the_model_added(mock_post):
     # Regression: observed live (2026-08-09) via history.jsonl - the

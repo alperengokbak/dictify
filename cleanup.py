@@ -98,12 +98,26 @@ def build_cleanup_prompt(
         "4. Fix grammar mistakes (verb tense, subject-verb agreement, word "
         "order, articles, etc.) without changing the meaning or the "
         "language of the input\n"
-        "5. DO NOT add or remove content beyond cleaning\n"
+        "5. DO NOT add or remove content beyond cleaning. Every statement in "
+        "the transcript must survive into your output. Never drop, summarize "
+        "or condense a sentence or clause - not even one that sounds like "
+        "background context, an aside, or a lead-in to the real point. Only "
+        "the filler words in rule 1 get removed; complete thoughts never do.\n"
         "6. DO NOT TRANSLATE - output MUST be in the same language as input\n"
         "7. Output ONLY the cleaned transcript text - do not wrap it in "
         "quotation marks and do not add labels or commentary\n"
         f"{style_instruction}\n"
         "EXAMPLES:\n"
+        # Every other example here shows the output coming back shorter than
+        # the input, which a 3B model generalises into "shorter is better" and
+        # then applies to whole sentences. This one demonstrates the opposite
+        # case explicitly - see rule 5.
+        "Input: 'and if that doesn't work then we can just revert it back to "
+        "the old one which was fine am I right'\n"
+        "Output: 'And if that doesn't work, then we can revert it back to the "
+        "old one, which was fine. Am I right?'\n"
+        "(every clause kept - the context sentence is NOT dropped, only "
+        "punctuation and capitalization added)\n\n"
         "Input: 'ıı bugün şey çalıştım yani'\n"
         "Output: 'Bugün çalıştım.'\n"
         "(Turkish → Turkish, fillers removed, not translated)\n\n"
