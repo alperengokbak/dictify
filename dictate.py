@@ -22,12 +22,12 @@ from feedback import CANCEL_SOUND, START_SOUND, STOP_SOUND, play_sound
 from filetranscribe import FileTranscribeError, transcribe_file
 from history import append_entry, clear_history, load_history
 from hotkey import HotkeyListener
-import hotkey
 from paste import copy_to_clipboard, paste_into_frontmost_app
 from preferences import PreferencesWindowController
 from transcribe import TranscribeError, transcribe
 from waveform import WaveformWindowController
 import appcontext
+import hotkey
 import whisper_server
 
 IDLE_TITLE = "🎙"
@@ -361,7 +361,7 @@ class DictateApp(rumps.App):
             listener = HotkeyListener(combo, on_activate=self._cancel_recording)
             try:
                 listener.start()
-            except RuntimeError as exc:
+            except Exception as exc:
                 # Escape may already be claimed by another app. Recording
                 # is the core feature and must not be taken down by the
                 # cancel accessory failing to register.
@@ -431,7 +431,6 @@ class DictateApp(rumps.App):
         self._stop_event = threading.Event()
         self._samples = None
         self.waveform.show()
-        self._start_cancel_listeners()
 
         def run():
             try:
@@ -448,6 +447,7 @@ class DictateApp(rumps.App):
 
         self._record_thread = threading.Thread(target=run)
         self._record_thread.start()
+        self._start_cancel_listeners()
 
     def _stop_recording(self):
         self.state = "processing"

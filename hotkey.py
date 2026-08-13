@@ -183,7 +183,7 @@ _SIGNATURE = struct.unpack("@I", b"DCFY")[0]
 _next_hotkey_id = itertools.count(1)
 
 
-def _fired_hotkey_id(event) -> tuple:
+def _fired_hotkey_id(event) -> tuple[int, int]:
     """Reads the (signature, id) pair Carbon attached to the hotkey event
     that fired, via the same GetEventParameter/typeEventHotKeyID mechanism
     quickmachotkey's own quickHotKey decorator uses internally to route

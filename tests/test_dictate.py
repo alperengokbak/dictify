@@ -80,14 +80,11 @@ def _bare_app(config=None):
 
 
 class _FakeHotkeyListener:
-    created = []
-
     def __init__(self, combo, on_activate=None, on_deactivate=None, mode="toggle"):
         self.combo = combo
         self.on_activate = on_activate
         self.start_calls = 0
         self.stop_calls = 0
-        _FakeHotkeyListener.created.append(self)
 
     def start(self):
         self.start_calls += 1
@@ -99,7 +96,6 @@ class _FakeHotkeyListener:
 def test_start_cancel_listeners_registers_derived_combos(monkeypatch):
     monkeypatch.setattr(dictate, "HotkeyListener", _FakeHotkeyListener)
     app = _bare_app({"hotkey": "<ctrl>+<alt>+<cmd>+<d>"})
-    app._cancel_listeners = []
 
     app._start_cancel_listeners()
 
@@ -120,7 +116,6 @@ def test_start_cancel_listeners_skips_a_combo_that_fails_to_register(monkeypatch
 
     monkeypatch.setattr(dictate, "HotkeyListener", _OneFailsListener)
     app = _bare_app({"hotkey": "<ctrl>+<alt>+<cmd>+<d>"})
-    app._cancel_listeners = []
 
     app._start_cancel_listeners()  # must not raise
 
@@ -131,7 +126,6 @@ def test_start_cancel_listeners_skips_a_combo_that_fails_to_register(monkeypatch
 def test_stop_cancel_listeners_stops_all_and_clears_list(monkeypatch):
     monkeypatch.setattr(dictate, "HotkeyListener", _FakeHotkeyListener)
     app = _bare_app({"hotkey": "<ctrl>+<alt>+<cmd>+<d>"})
-    app._cancel_listeners = []
     app._start_cancel_listeners()
     listeners = list(app._cancel_listeners)
 
@@ -139,6 +133,43 @@ def test_stop_cancel_listeners_stops_all_and_clears_list(monkeypatch):
 
     assert app._cancel_listeners == []
     assert all(listener.stop_calls == 1 for listener in listeners)
+
+
+def test_start_recording_arms_the_cancel_listeners(monkeypatch):
+    monkeypatch.setattr(dictate, "HotkeyListener", _FakeHotkeyListener)
+    monkeypatch.setattr(dictate, "record", lambda *a, **kw: None)
+    monkeypatch.setattr(dictate, "play_sound", lambda name: None)
+    app = _bare_app({"hotkey": "<ctrl>+<alt>+<cmd>+<d>", "recording_mode": "toggle"})
+    app.waveform = MagicMock()
+
+    app._start_recording()
+    app._record_thread.join()
+
+    assert app._cancel_listeners
+    assert all(listener.start_calls == 1 for listener in app._cancel_listeners)
+
+
+def test_stop_recording_disarms_cancel_listeners_before_processing_starts(monkeypatch):
+    monkeypatch.setattr(dictate, "play_sound", lambda name: None)
+    fake_process_thread = MagicMock()
+    monkeypatch.setattr(
+        dictate.threading, "Thread", lambda *a, **kw: fake_process_thread
+    )
+    app = _bare_recording_app()
+    app._pending_config = {}
+    seeded_listeners = [
+        _FakeHotkeyListener("<escape>"),
+        _FakeHotkeyListener("<ctrl>+<alt>+<cmd>+<escape>"),
+    ]
+    for listener in seeded_listeners:
+        listener.start()
+    app._cancel_listeners = seeded_listeners
+
+    app._stop_recording()
+
+    assert app._cancel_listeners == []
+    assert all(listener.stop_calls == 1 for listener in seeded_listeners)
+    fake_process_thread.start.assert_called_once()
 
 
 def test_play_start_sound_plays_when_enabled(monkeypatch):
@@ -207,7 +238,6 @@ def _bare_recording_app(sound_enabled=True):
     app._stop_event = MagicMock()
     app._record_thread = MagicMock()
     app._samples = "raw audio samples"
-    app._cancel_listeners = []
     app.waveform = MagicMock()
     return app
 
@@ -387,6 +417,19 @@ def test_on_quit_stops_whisper_server(monkeypatch):
     assert stopped == [True]
 
 
+def test_on_quit_disarms_cancel_listeners(monkeypatch):
+    monkeypatch.setattr(dictate.whisper_server, "stop", lambda: None)
+    app = _bare_app()
+    listener = _FakeHotkeyListener("<escape>")
+    listener.start()
+    app._cancel_listeners = [listener]
+
+    app._on_quit()
+
+    assert listener.stop_calls == 1
+    assert app._cancel_listeners == []
+
+
 def _real_app(monkeypatch):
     """Constructs a genuine DictateApp - __init__ and all - with only the
     live OS side effects (config file I/O, the global hotkey listener, the
@@ -414,7 +457,11 @@ def test_init_registers_on_quit_as_a_before_quit_callback(monkeypatch):
 
 def test_init_sets_up_empty_cancel_listeners(monkeypatch):
     app = _real_app(monkeypatch)
-    assert app._cancel_listeners == []
+    try:
+        assert app._cancel_listeners == []
+    finally:
+        # Module-level registry: leaving it registered would leak into other tests.
+        rumps.events.before_quit.unregister(app._on_quit)
 
 
 def test_show_preferences_snapshots_the_model_path_so_an_unchanged_save_is_a_no_op(
