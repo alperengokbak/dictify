@@ -89,6 +89,12 @@ Settings live in `~/.config/dictify/config.json` and are created with defaults o
 
 Default is Control+Option+Command+D (`<ctrl>+<alt>+<cmd>+<d>`) — three modifiers plus a key is deliberately unusual to minimize the chance of colliding with an existing app or system shortcut. The hotkey is registered with macOS's native Carbon hotkey API (`RegisterEventHotKey`), the same mechanism Spotlight and apps like Alfred and Rectangle use — it's consumed system-wide before it ever reaches the frontmost app, so unlike a plain key-event listener, nothing leaks into whatever you're typing into. That also means it needs a real, non-modifier key: exactly one of `<a>`–`<z>`, `<0>`–`<9>`, `<f1>`–`<f20>`, `<space>`, `<tab>`, `<return>`, `<escape>`, `<delete>`, or an arrow key (`<left>`/`<right>`/`<up>`/`<down>`), plus any combination of `<ctrl>`, `<alt>`, `<cmd>`, `<shift>` modifiers — modifier-only combos (e.g. just `<ctrl>+<alt>`) are no longer supported, since Carbon's hotkey manager has no way to represent them. Easiest way to set one is **Preferences... → Set Shortcut...**: hold your modifiers, press the key, done.
 
+### Cancel a recording
+
+Press **Escape** while recording (🔴) to cancel — the audio is discarded before it ever reaches Whisper, cleanup, the clipboard, or history. Works in both Toggle and Push-to-Talk mode; in Push-to-Talk, hold the record hotkey down and press Escape while still holding it. A distinct system sound ("Basso") plays so a cancel is unmistakable from a normal stop.
+
+Escape isn't claimed globally the way the record hotkey is — it's only registered for the few seconds a recording is actually in progress, so it behaves completely normally everywhere else (closing dialogs, exiting Vim insert mode, etc.) the rest of the time. Not configurable, and there's no menu item for it either — it's meant to be a single fast keypress while your hands are already at the keyboard mid-dictation.
+
 ### Recording mode
 
 Toggle (press to start, press again to stop) or push-to-talk (hold to record, release to stop) — switchable live from the menu bar's "Recording Mode" submenu.
