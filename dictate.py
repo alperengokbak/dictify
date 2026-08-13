@@ -22,6 +22,7 @@ from feedback import START_SOUND, STOP_SOUND, play_sound
 from filetranscribe import FileTranscribeError, transcribe_file
 from history import append_entry, clear_history, load_history
 from hotkey import HotkeyListener
+import hotkey
 from paste import copy_to_clipboard, paste_into_frontmost_app
 from preferences import PreferencesWindowController
 from transcribe import TranscribeError, transcribe
@@ -57,6 +58,24 @@ def _format_last_transcript_label(text, limit=50):
     single_line = " ".join(text.split())
     truncated = single_line if len(single_line) <= limit else single_line[:limit] + "…"
     return f"Last: {truncated}"
+
+
+def _cancel_combos(record_combo):
+    """Derives the Escape-based cancel combos to register while recording:
+    bare Escape (fires in Toggle mode) and Escape + the record hotkey's
+    modifier mask (fires in Push-to-Talk mode, where those modifiers are
+    physically held down). Both mean cancel - from the user's perspective
+    it's just "press Escape" in either mode.
+
+    Skips any candidate that collides with the record hotkey's own combo
+    (registering the same combo twice fails), which also naturally
+    de-duplicates when the record hotkey carries no modifiers, since both
+    candidates would then already be identical bare Escape."""
+    record_virtual_key, record_modifier_mask = hotkey.parse_combo(record_combo)
+    escape_key = hotkey.KEY_TOKENS["<escape>"]
+    candidates = {(escape_key, 0), (escape_key, record_modifier_mask)}
+    candidates.discard((record_virtual_key, record_modifier_mask))
+    return [hotkey.format_combo(key, mask) for key, mask in sorted(candidates)]
 
 
 _lock_file_descriptor = None  # kept open for the process lifetime - closing it (or process exit/crash) releases the OS-level lock

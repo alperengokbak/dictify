@@ -8,6 +8,28 @@ import appcontext
 import dictate
 
 
+def test_cancel_combos_normal_record_hotkey_yields_two_distinct_combos():
+    combos = dictate._cancel_combos("<ctrl>+<alt>+<cmd>+<d>")
+    assert set(combos) == {"<escape>", "<ctrl>+<alt>+<cmd>+<escape>"}
+
+
+def test_cancel_combos_record_hotkey_with_no_modifiers_yields_one_combo():
+    assert dictate._cancel_combos("<d>") == ["<escape>"]
+
+
+def test_cancel_combos_record_hotkey_is_escape_skips_colliding_combo():
+    # The record hotkey's own combo (<ctrl>+<alt>+<escape>) would be
+    # registered twice if not excluded - once by the record listener,
+    # once again as a cancel candidate.
+    assert dictate._cancel_combos("<ctrl>+<alt>+<escape>") == ["<escape>"]
+
+
+def test_cancel_combos_record_hotkey_is_bare_escape_yields_no_combos():
+    # Degenerate case: the record hotkey IS bare Escape, so every cancel
+    # candidate collides with it. No cancel hotkey can be offered.
+    assert dictate._cancel_combos("<escape>") == []
+
+
 def test_acquire_singleton_lock_succeeds_when_no_lock_file(tmp_path):
     lock_path = tmp_path / "dictify.lock"
     assert dictate._acquire_singleton_lock(lock_path) is True
