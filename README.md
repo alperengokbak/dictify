@@ -111,6 +111,43 @@ Language can be forced to Turkish or English (instead of per-utterance auto-dete
 
 It's used two ways: as a hint to Whisper during transcription, and as a reference list the cleanup step uses to fix a misheard word back to the correct spelling — it won't rewrite words that are already correct or unrelated. Empty by default; edit it from **Preferences...** (one term per line) or directly in `config.json`.
 
+### Per-app profiles
+
+`"app_profiles"` lets the application you're dictating into decide the Style, Language, and cleanup setting automatically, so you stop switching them by hand. Empty by default — with no rules configured, nothing about dictation changes.
+
+```json
+"app_profiles": [
+  {
+    "bundle_ids": ["com.apple.Terminal", "com.googlecode.iterm2"],
+    "overrides": {"cleanup_enabled": false}
+  },
+  {
+    "bundle_ids": ["net.whatsapp.WhatsApp"],
+    "overrides": {"style": "casual", "language": "tr"}
+  },
+  {
+    "bundle_ids": ["com.apple.mail"],
+    "overrides": {"style": "professional"}
+  }
+]
+```
+
+Rules are checked in order and the first match wins. One rule can cover several apps, which is what you want for terminal emulators — they all deserve the same treatment. Only three keys can be overridden: `style` (`default`/`professional`/`casual`), `language` (`auto`/`tr`/`en`), and `cleanup_enabled`. Anything else in an `overrides` block is ignored, so a profile can't repoint the Whisper model or change your hotkey.
+
+The profile is resolved when recording *starts*, using whichever application is frontmost at that moment — cleanup runs before the paste, so the decision has to be made up front. If you switch apps mid-dictation, the text is styled for the app you began in and pastes wherever focus ended up.
+
+Note that a profile applies the rule you wrote; it doesn't detect anything. Setting WhatsApp to `"language": "tr"` forces Turkish there — if you sometimes speak English in that app, leave `language` out of the rule and let auto-detect do its job.
+
+To find an application's bundle identifier:
+
+```bash
+osascript -e 'id of app "Slack"'
+```
+
+Matching is on bundle identifier only — Dictify never reads window titles, which is what keeps this from needing a Screen Recording permission on top of the ones it already asks for.
+
+Anything Dictify can't determine falls back to your global settings: an app with no rule, a failed lookup, or a malformed entry all dictate exactly as they would without profiles.
+
 ### History
 
 Every dictation's raw and cleaned text, with timestamp/language/style, is logged locally to `~/.config/dictify/history.jsonl` (on by default — `"history_enabled": false` in Preferences turns it off). "Show History" in the menu bar opens a readable, most-recent-first view; "Clear History" wipes it.
