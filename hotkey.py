@@ -180,6 +180,18 @@ KEY_TOKEN_BY_VIRTUAL_KEY = {code: token for token, code in KEY_TOKENS.items()}
 
 _SIGNATURE = struct.unpack("@I", b"DCFY")[0]
 
+# Carbon's eventNotHandledErr (CarbonEvents.h). Not exported by
+# quickmachotkey's _MinimalHIToolbox bridge, so hardcoded here - it's a
+# stable, decades-old constant. Returning it from an event handler tells
+# Carbon's Event Manager "not mine, keep walking the handler chain for this
+# target." Returning 0 (noErr) means the opposite - "handled, stop here" -
+# which is why every HotkeyListener's callback below must use it precisely:
+# with multiple listeners installed on the same GetEventDispatcherTarget()
+# (the record hotkey plus any cancel hotkeys active during a recording),
+# an event this listener doesn't own must NOT be swallowed by a bare `return
+# 0`, or the listener that actually owns it never gets a turn.
+_EVENT_NOT_HANDLED = -9874
+
 _next_hotkey_id = itertools.count(1)
 
 
@@ -276,16 +288,19 @@ class HotkeyListener:
             try:
                 kind = GetEventKind(event)
                 if kind not in (kEventHotKeyPressed, kEventHotKeyReleased):
-                    return 0
+                    return _EVENT_NOT_HANDLED
                 if _fired_hotkey_id(event) != (_SIGNATURE, self._hotkey_id):
-                    return 0
+                    return _EVENT_NOT_HANDLED
                 if kind == kEventHotKeyPressed:
                     self._on_activate()
-                elif kind == kEventHotKeyReleased and self._on_deactivate is not None:
+                    return 0
+                if kind == kEventHotKeyReleased and self._on_deactivate is not None:
                     self._on_deactivate()
+                    return 0
+                return _EVENT_NOT_HANDLED
             except Exception:
                 traceback.print_exc()
-            return 0
+                return _EVENT_NOT_HANDLED
 
         # Keep the trampoline alive for the listener's lifetime - nothing
         # else holds a reference to it once start() returns.
