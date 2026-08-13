@@ -279,3 +279,54 @@ def test_save_writes_sound_feedback_enabled_into_config(tmp_path, monkeypatch):
     controller.save_(None)
 
     assert controller.config["sound_feedback_enabled"] is False
+
+
+def test_parse_profiles_text_single_rule():
+    assert preferences._parse_profiles_text("com.apple.mail -> style=professional") == [
+        {"bundle_ids": ["com.apple.mail"], "overrides": {"style": "professional"}}
+    ]
+
+
+def test_parse_profiles_text_multiple_bundle_ids_and_overrides():
+    text = "com.apple.Terminal, com.googlecode.iterm2 -> style=casual, cleanup=off"
+    assert preferences._parse_profiles_text(text) == [
+        {
+            "bundle_ids": ["com.apple.Terminal", "com.googlecode.iterm2"],
+            "overrides": {"style": "casual", "cleanup_enabled": False},
+        }
+    ]
+
+
+def test_parse_profiles_text_cleanup_on_maps_to_true():
+    assert preferences._parse_profiles_text("a.b -> cleanup=on")[0]["overrides"] == {
+        "cleanup_enabled": True
+    }
+
+
+def test_parse_profiles_text_skips_blank_and_malformed_lines():
+    text = "\n\ncom.apple.mail -> style=professional\nnonsense without an arrow\n"
+    assert len(preferences._parse_profiles_text(text)) == 1
+
+
+def test_parse_profiles_text_drops_unknown_keys():
+    result = preferences._parse_profiles_text("a.b -> style=casual, whisper_model_path=/tmp/x")
+    assert result[0]["overrides"] == {"style": "casual"}
+
+
+def test_parse_profiles_text_drops_rule_with_no_valid_overrides():
+    assert preferences._parse_profiles_text("a.b -> bogus=1") == []
+
+
+def test_format_profiles_text_round_trips():
+    profiles = [
+        {
+            "bundle_ids": ["com.apple.Terminal", "com.googlecode.iterm2"],
+            "overrides": {"style": "casual", "cleanup_enabled": False},
+        },
+        {"bundle_ids": ["com.apple.mail"], "overrides": {"style": "professional"}},
+    ]
+    assert preferences._parse_profiles_text(preferences._format_profiles_text(profiles)) == profiles
+
+
+def test_format_profiles_text_empty_list_is_empty_string():
+    assert preferences._format_profiles_text([]) == ""

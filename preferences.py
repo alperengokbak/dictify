@@ -31,6 +31,7 @@ from AppKit import (
     NSWindowStyleMaskMiniaturizable,
     NSWindowStyleMaskResizable,
     NSWindowStyleMaskTitled,
+    NSWorkspace,
 )
 
 from PyObjCTools import AppHelper
@@ -53,6 +54,7 @@ CLEANUP_SECTION_HEIGHT = 190
 SILENCE_SECTION_HEIGHT = 100
 HISTORY_SECTION_HEIGHT = 96
 FEEDBACK_SECTION_HEIGHT = 56
+PROFILES_SECTION_HEIGHT = 160
 BUTTON_ROW_HEIGHT = 44
 
 _MODIFIER_ORDER = [
@@ -76,6 +78,66 @@ def _parse_glossary_text(text: str) -> list[str]:
 
 def _format_glossary_text(glossary: list[str]) -> str:
     return "\n".join(glossary)
+
+
+# Maps the human-facing key used in the Preferences text area to the config key
+# it sets. "cleanup" reads better than "cleanup_enabled" in a rule line, and
+# on/off reads better than true/false.
+_PROFILE_KEY_ALIASES = {"style": "style", "language": "language", "cleanup": "cleanup_enabled"}
+_PROFILE_KEY_REVERSE = {v: k for k, v in _PROFILE_KEY_ALIASES.items()}
+
+
+def _parse_profiles_text(text: str) -> list[dict]:
+    """Parses `bundle.id, other.id -> key=value, key=value` lines into the
+    app_profiles config shape. Malformed lines and unknown keys are dropped
+    rather than raising - this is a free-text field, and a typo should cost the
+    user one rule, not the whole Preferences save."""
+    profiles = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or "->" not in line:
+            continue
+        ids_part, _, overrides_part = line.partition("->")
+        bundle_ids = [b.strip() for b in ids_part.split(",") if b.strip()]
+        if not bundle_ids:
+            continue
+
+        overrides = {}
+        for pair in overrides_part.split(","):
+            key, _, value = pair.partition("=")
+            key, value = key.strip().lower(), value.strip()
+            config_key = _PROFILE_KEY_ALIASES.get(key)
+            if config_key is None or not value:
+                continue
+            if config_key == "cleanup_enabled":
+                if value not in ("on", "off"):
+                    continue
+                overrides[config_key] = value == "on"
+            else:
+                overrides[config_key] = value
+
+        if overrides:
+            profiles.append({"bundle_ids": bundle_ids, "overrides": overrides})
+    return profiles
+
+
+def _format_profiles_text(profiles: list[dict]) -> str:
+    """Inverse of _parse_profiles_text, for populating the field on open."""
+    lines = []
+    for rule in profiles:
+        ids = ", ".join(rule.get("bundle_ids", []))
+        parts = []
+        for config_key, value in rule.get("overrides", {}).items():
+            display_key = _PROFILE_KEY_REVERSE.get(config_key)
+            if display_key is None:
+                continue
+            if config_key == "cleanup_enabled":
+                parts.append(f"{display_key}={'on' if value else 'off'}")
+            else:
+                parts.append(f"{display_key}={value}")
+        if ids and parts:
+            lines.append(f"{ids} -> {', '.join(parts)}")
+    return "\n".join(lines)
 
 
 def _parse_float_or_default(text: str, default: float) -> float:
@@ -338,6 +400,73 @@ class PreferencesWindowController(NSObject):
         return box
 
     @objc.python_method
+    @objc.python_method
+    def _running_apps(self):
+        """User-facing running applications, as (name, bundle_id). Filtering on
+        activationPolicy() == 0 (NSApplicationActivationPolicyRegular) excludes
+        background agents and menu-bar-only processes - Dictify itself included,
+        since it's LSUIElement. This is what solves discoverability: the
+        frontmost app can't be sampled from here, because while Preferences is
+        open, Preferences is the frontmost app."""
+        try:
+            apps = NSWorkspace.sharedWorkspace().runningApplications()
+        except Exception:
+            return []
+        return sorted(
+            {
+                (str(a.localizedName()), str(a.bundleIdentifier()))
+                for a in apps
+                if a.activationPolicy() == 0 and a.bundleIdentifier() and a.localizedName()
+            }
+        )
+
+    @objc.python_method
+    def _build_profiles_section(self, y_top, width):
+        box = self._make_box("App Profiles", y_top, PROFILES_SECTION_HEIGHT, width)
+        content = box.contentView()
+        cw = content.bounds().size.width
+        ch = content.bounds().size.height
+
+        self._add_label(
+            content,
+            "One rule per line:   bundle.id, other.id -> style=casual, cleanup=off",
+            NSMakeRect(0, ch - 20, cw, 18),
+            font_size=11,
+        )
+
+        self.running_apps_popup = NSPopUpButton.alloc().initWithFrame_pullsDown_(
+            NSMakeRect(0, ch - 50, cw, 26), False
+        )
+        self.running_apps_popup.addItemWithTitle_("Insert a running app's bundle id…")
+        for name, bundle_id in self._running_apps():
+            self.running_apps_popup.addItemWithTitle_(f"{name}  —  {bundle_id}")
+        self.running_apps_popup.setTarget_(self)
+        self.running_apps_popup.setAction_("insertRunningApp:")
+        content.addSubview_(self.running_apps_popup)
+
+        scroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(0, 0, cw, ch - 56))
+        scroll.setHasVerticalScroller_(True)
+        self.profiles_view = NSTextView.alloc().initWithFrame_(NSMakeRect(0, 0, cw, ch - 56))
+        self.profiles_view.setString_(
+            _format_profiles_text(self.config.get("app_profiles", []))
+        )
+        scroll.setDocumentView_(self.profiles_view)
+        content.addSubview_(scroll)
+        return box
+
+    def insertRunningApp_(self, sender):
+        index = sender.indexOfSelectedItem()
+        if index <= 0:  # row 0 is the placeholder title
+            return
+        apps = self._running_apps()
+        if index - 1 >= len(apps):
+            return
+        _, bundle_id = apps[index - 1]
+        existing = str(self.profiles_view.string()).rstrip()
+        line = f"{bundle_id} -> style=casual"
+        self.profiles_view.setString_(f"{existing}\n{line}".strip())
+        sender.selectItemAtIndex_(0)
+
     def _build_window(self):
         total_height = (
             2 * MARGIN
@@ -347,7 +476,8 @@ class PreferencesWindowController(NSObject):
             + SILENCE_SECTION_HEIGHT
             + HISTORY_SECTION_HEIGHT
             + FEEDBACK_SECTION_HEIGHT
-            + 6 * SECTION_GAP
+            + PROFILES_SECTION_HEIGHT
+            + 7 * SECTION_GAP
             + BUTTON_ROW_HEIGHT
         )
         rect = NSMakeRect(200, 100, WINDOW_WIDTH, total_height)
@@ -389,6 +519,10 @@ class PreferencesWindowController(NSObject):
         feedback_box = self._build_feedback_section(y, WINDOW_WIDTH)
         content.addSubview_(feedback_box)
         y -= FEEDBACK_SECTION_HEIGHT + SECTION_GAP
+
+        profiles_box = self._build_profiles_section(y, WINDOW_WIDTH)
+        content.addSubview_(profiles_box)
+        y -= PROFILES_SECTION_HEIGHT + SECTION_GAP
 
         button_y = y - BUTTON_ROW_HEIGHT + 8
         save_button = NSButton.alloc().initWithFrame_(
@@ -543,6 +677,7 @@ class PreferencesWindowController(NSObject):
         if hotkey_value:
             self.config["hotkey"] = hotkey_value
         self.config["glossary"] = _parse_glossary_text(str(self.glossary_view.string()))
+        self.config["app_profiles"] = _parse_profiles_text(str(self.profiles_view.string()))
         self.config["silence_peak_floor_dbfs"] = _parse_float_or_default(
             str(self.peak_field.stringValue()), self.config.get("silence_peak_floor_dbfs", -55.0)
         )
