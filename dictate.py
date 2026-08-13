@@ -116,6 +116,7 @@ class DictateApp(rumps.App):
         self._samples = None
         self._option_items = {}
         self.hotkey = None
+        self._cancel_listeners = []
         self._preferences_controller = None
         self.waveform = WaveformWindowController()
 
@@ -190,6 +191,7 @@ class DictateApp(rumps.App):
             whisper_server.stop()
 
     def _on_quit(self):
+        self._stop_cancel_listeners()
         whisper_server.stop()
 
     def _resolve_effective_config(self):
@@ -429,6 +431,7 @@ class DictateApp(rumps.App):
         self._stop_event = threading.Event()
         self._samples = None
         self.waveform.show()
+        self._start_cancel_listeners()
 
         def run():
             try:
@@ -437,6 +440,7 @@ class DictateApp(rumps.App):
                 )
             except Exception as exc:
                 self._samples = None
+                self._stop_cancel_listeners()
                 rumps.notification("Dictify", "Recording failed", str(exc))
                 self.waveform.hide()
                 self.state = "idle"
@@ -447,6 +451,7 @@ class DictateApp(rumps.App):
 
     def _stop_recording(self):
         self.state = "processing"
+        self._stop_cancel_listeners()
         self._play_stop_sound()
         self.title = PROCESSING_TITLE
         self.waveform.hide()

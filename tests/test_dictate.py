@@ -75,6 +75,7 @@ def _bare_app(config=None):
     PreferencesWindowController, adapted for a plain-Python App subclass."""
     app = dictate.DictateApp.__new__(dictate.DictateApp)
     app.config = config if config is not None else {}
+    app._cancel_listeners = []
     return app
 
 
@@ -409,6 +410,11 @@ def test_init_registers_on_quit_as_a_before_quit_callback(monkeypatch):
     finally:
         # Module-level registry: leaving it registered would leak into other tests.
         rumps.events.before_quit.unregister(app._on_quit)
+
+
+def test_init_sets_up_empty_cancel_listeners(monkeypatch):
+    app = _real_app(monkeypatch)
+    assert app._cancel_listeners == []
 
 
 def test_show_preferences_snapshots_the_model_path_so_an_unchanged_save_is_a_no_op(
