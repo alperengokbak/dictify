@@ -9,6 +9,29 @@ from AppKit import NSWorkspace
 OVERRIDABLE_KEYS = frozenset({"style", "language", "cleanup_enabled"})
 
 
+def frontmost_bundle_id():
+    """Returns the frontmost application's bundle identifier, or None if macOS
+    won't say.
+
+    Returns only the bundle id, not the display name: the recording path
+    matches on identifier alone, and Preferences gets human-readable names
+    from runningApplications() instead.
+
+    Catches everything on purpose. This is a thin bridge into PyObjC whose
+    failure modes are not enumerable from the Python side, and the correct
+    response to every one of them is the same - fall back to the global
+    config. The alternative is a dictation that fails because a cosmetic
+    lookup did."""
+    try:
+        app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        if app is None:
+            return None
+        bundle_id = app.bundleIdentifier()
+        return str(bundle_id) if bundle_id else None
+    except Exception:
+        return None
+
+
 def resolve_profile(bundle_id, config: dict) -> dict:
     """Returns the override dict for this app, or {} if no rule matches.
     Pure - no macOS involvement, no I/O."""

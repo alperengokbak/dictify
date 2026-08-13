@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock
+
 import appcontext
 
 
@@ -81,3 +83,51 @@ def test_effective_config_never_mutates_the_input():
     cfg = _config([])
     appcontext.effective_config(cfg, {"style": "casual"})
     assert cfg["style"] == "default"
+
+
+def _workspace_returning(app):
+    """Builds a stand-in for NSWorkspace whose sharedWorkspace().frontmostApplication()
+    yields `app`. Mirrors the injectable-transport style used in whisper_models.py."""
+    workspace = MagicMock()
+    workspace.sharedWorkspace.return_value.frontmostApplication.return_value = app
+    return workspace
+
+
+def test_frontmost_bundle_id_returns_the_identifier(monkeypatch):
+    app = MagicMock()
+    app.bundleIdentifier.return_value = "com.apple.Terminal"
+    monkeypatch.setattr(appcontext, "NSWorkspace", _workspace_returning(app))
+
+    assert appcontext.frontmost_bundle_id() == "com.apple.Terminal"
+
+
+def test_frontmost_bundle_id_returns_none_when_no_frontmost_app(monkeypatch):
+    # Happens during login/logout transitions and some Spaces switches.
+    monkeypatch.setattr(appcontext, "NSWorkspace", _workspace_returning(None))
+
+    assert appcontext.frontmost_bundle_id() is None
+
+
+def test_frontmost_bundle_id_returns_none_when_identifier_is_none(monkeypatch):
+    app = MagicMock()
+    app.bundleIdentifier.return_value = None
+    monkeypatch.setattr(appcontext, "NSWorkspace", _workspace_returning(app))
+
+    assert appcontext.frontmost_bundle_id() is None
+
+
+def test_frontmost_bundle_id_returns_none_when_identifier_is_empty(monkeypatch):
+    app = MagicMock()
+    app.bundleIdentifier.return_value = ""
+    monkeypatch.setattr(appcontext, "NSWorkspace", _workspace_returning(app))
+
+    assert appcontext.frontmost_bundle_id() is None
+
+
+def test_frontmost_bundle_id_swallows_pyobjc_errors(monkeypatch):
+    # A cosmetic lookup must never be able to prevent a dictation.
+    workspace = MagicMock()
+    workspace.sharedWorkspace.side_effect = RuntimeError("PyObjC exploded")
+    monkeypatch.setattr(appcontext, "NSWorkspace", workspace)
+
+    assert appcontext.frontmost_bundle_id() is None
