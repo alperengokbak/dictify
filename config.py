@@ -39,6 +39,7 @@ DEFAULT_CONFIG = {
     "history_enabled": True,
     "history_limit": 200,
     "sound_feedback_enabled": True,
+    "app_profiles": [],
 }
 
 
