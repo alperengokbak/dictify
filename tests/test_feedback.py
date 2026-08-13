@@ -53,3 +53,7 @@ def test_play_sound_swallows_exception_from_play(monkeypatch):
 def test_start_and_stop_sound_constants():
     assert feedback.START_SOUND == "Tink"
     assert feedback.STOP_SOUND == "Pop"
+
+
+def test_cancel_sound_constant():
+    assert feedback.CANCEL_SOUND == "Basso"

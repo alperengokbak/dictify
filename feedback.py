@@ -2,6 +2,7 @@ from AppKit import NSSound
 
 START_SOUND = "Tink"
 STOP_SOUND = "Pop"
+CANCEL_SOUND = "Basso"
 
 
 def play_sound(name: str) -> None:
