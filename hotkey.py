@@ -1,3 +1,4 @@
+import itertools
 import struct
 import traceback
 from typing import Callable, Optional
@@ -7,6 +8,7 @@ from quickmachotkey._MinimalHIToolbox import (
     EventTypeSpec,
     GetEventDispatcherTarget,
     GetEventKind,
+    GetEventParameter,
     InstallEventHandler,
     RegisterEventHotKey,
     RemoveEventHandler,
@@ -14,6 +16,8 @@ from quickmachotkey._MinimalHIToolbox import (
     kEventClassKeyboard,
     kEventHotKeyPressed,
     kEventHotKeyReleased,
+    kEventParamDirectObject,
+    typeEventHotKeyID,
 )
 from quickmachotkey.constants import (
     cmdKey,
@@ -176,6 +180,21 @@ KEY_TOKEN_BY_VIRTUAL_KEY = {code: token for token, code in KEY_TOKENS.items()}
 
 _SIGNATURE = struct.unpack("@I", b"DCFY")[0]
 
+_next_hotkey_id = itertools.count(1)
+
+
+def _fired_hotkey_id(event) -> tuple:
+    """Reads the (signature, id) pair Carbon attached to the hotkey event
+    that fired, via the same GetEventParameter/typeEventHotKeyID mechanism
+    quickmachotkey's own quickHotKey decorator uses internally to route
+    events to the right registration."""
+    result, _actual_type, _actual_size, relayed_param = GetEventParameter(
+        event, kEventParamDirectObject, typeEventHotKeyID, None, 8, None, None,
+    )
+    if result != 0:
+        raise RuntimeError(f"GetEventParameter failed with OSStatus {result}")
+    return struct.unpack("@II", relayed_param)
+
 
 def parse_combo(combo: str):
     """Parse a combo string like "<ctrl>+<alt>+<d>" into a (virtual_key,
@@ -204,6 +223,18 @@ def parse_combo(combo: str):
             f"hotkey combo must include one non-modifier key (e.g. <d>): {combo!r}"
         )
     return virtual_key, modifier_mask
+
+
+def format_combo(virtual_key: int, modifier_mask: int) -> str:
+    """The inverse of parse_combo: builds a combo string like
+    "<ctrl>+<alt>+<escape>" from a (virtual_key, modifier_mask) pair.
+    Modifier tokens appear in MODIFIER_TOKENS' insertion order (ctrl, alt,
+    cmd, shift) so the result is deterministic."""
+    if virtual_key not in KEY_TOKEN_BY_VIRTUAL_KEY:
+        raise ValueError(f"unknown virtual key code: {virtual_key!r}")
+    tokens = [token for token, bit in MODIFIER_TOKENS.items() if modifier_mask & bit]
+    tokens.append(KEY_TOKEN_BY_VIRTUAL_KEY[virtual_key])
+    return "+".join(tokens)
 
 
 class HotkeyListener:
@@ -235,6 +266,7 @@ class HotkeyListener:
         self._hotkey_ref = None
         self._handler_ref = None
         self._callback = None
+        self._hotkey_id = next(_next_hotkey_id)
 
     def start(self) -> None:
         target = GetEventDispatcherTarget()
@@ -243,6 +275,10 @@ class HotkeyListener:
         def callback(callref, event, void):
             try:
                 kind = GetEventKind(event)
+                if kind not in (kEventHotKeyPressed, kEventHotKeyReleased):
+                    return 0
+                if _fired_hotkey_id(event) != (_SIGNATURE, self._hotkey_id):
+                    return 0
                 if kind == kEventHotKeyPressed:
                     self._on_activate()
                 elif kind == kEventHotKeyReleased and self._on_deactivate is not None:
@@ -265,7 +301,7 @@ class HotkeyListener:
             raise RuntimeError(f"InstallEventHandler failed with OSStatus {result}")
         self._handler_ref = handler_ref
 
-        hotkey_id = (_SIGNATURE, 1)
+        hotkey_id = (_SIGNATURE, self._hotkey_id)
         result, hotkey_ref = RegisterEventHotKey(
             self._virtual_key, self._modifier_mask, hotkey_id, target, 0, None
         )

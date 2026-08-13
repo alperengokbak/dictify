@@ -79,3 +79,50 @@ def test_hotkey_listener_push_to_talk_start_and_stop_do_not_raise():
 def test_hotkey_listener_constructor_rejects_invalid_combo():
     with pytest.raises(ValueError):
         hotkey.HotkeyListener("<ctrl>+<alt>", on_activate=lambda: None)
+
+
+def test_format_combo_single_modifier_plus_key():
+    assert hotkey.format_combo(kVK_ANSI_D, controlKey) == "<ctrl>+<d>"
+
+
+def test_format_combo_multiple_modifiers_plus_key():
+    assert hotkey.format_combo(kVK_ANSI_D, controlKey | optionKey) == "<ctrl>+<alt>+<d>"
+
+
+def test_format_combo_key_only_no_modifiers():
+    assert hotkey.format_combo(kVK_ANSI_D, 0) == "<d>"
+
+
+def test_format_combo_is_inverse_of_parse_combo():
+    combo = "<ctrl>+<alt>+<cmd>+<d>"
+    virtual_key, modifier_mask = hotkey.parse_combo(combo)
+    assert hotkey.format_combo(virtual_key, modifier_mask) == combo
+
+
+def test_format_combo_rejects_unknown_virtual_key():
+    with pytest.raises(ValueError, match="unknown virtual key"):
+        hotkey.format_combo(9999, 0)
+
+
+def test_hotkey_listener_instances_get_unique_ids():
+    first = hotkey.HotkeyListener("<ctrl>+<alt>+<d>", on_activate=lambda: None)
+    second = hotkey.HotkeyListener("<ctrl>+<alt>+<e>", on_activate=lambda: None)
+    assert first._hotkey_id != second._hotkey_id
+
+
+def test_hotkey_listener_two_instances_register_and_teardown_concurrently():
+    # Regression: RegisterEventHotKey previously used a hardcoded ID for
+    # every listener. That's harmless with one listener alive, but once a
+    # second one is registered on the same dispatcher target its callback
+    # would fire for both combos rather than just its own. This doesn't
+    # verify dispatch (see the GetEventParameter caveat in the spec) - only
+    # that two listeners can be alive and torn down at once without the
+    # registration itself raising.
+    first = hotkey.HotkeyListener("<ctrl>+<alt>+<d>", on_activate=lambda: None)
+    second = hotkey.HotkeyListener("<ctrl>+<alt>+<escape>", on_activate=lambda: None)
+    first.start()
+    try:
+        second.start()
+        second.stop()
+    finally:
+        first.stop()
