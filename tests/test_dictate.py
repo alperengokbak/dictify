@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import rumps
 
+import appcontext
 import dictate
 
 
@@ -300,6 +301,77 @@ def test_clean_with_fallback_forwards_detected_language_to_clean_transcript(monk
     monkeypatch.setattr(dictate, "clean_transcript", _fake_clean_transcript)
     app = _bare_app({"cleanup_enabled": True})
 
-    app._clean_with_fallback("some text", language="en")
+    app._clean_with_fallback("some text", app.config, language="en")
 
     assert received["language"] == "en"
+
+
+def test_clean_with_fallback_honors_the_config_passed_to_it(monkeypatch):
+    # cleanup_enabled differs between self.config and the passed config, so
+    # which one is consulted is observable.
+    monkeypatch.setattr(dictate, "clean_transcript", lambda *a, **kw: "CLEANED")
+    app = _bare_app({"cleanup_enabled": True})
+
+    assert app._clean_with_fallback("raw", {"cleanup_enabled": False}) == "raw"
+
+
+def test_clean_with_fallback_cleans_when_passed_config_enables_it(monkeypatch):
+    monkeypatch.setattr(dictate, "clean_transcript", lambda *a, **kw: "CLEANED")
+    app = _bare_app({"cleanup_enabled": False})
+
+    assert app._clean_with_fallback("raw", {"cleanup_enabled": True}) == "CLEANED"
+
+
+def test_record_history_logs_the_effective_style(monkeypatch):
+    # A history entry claiming "professional" for text a Terminal rule passed
+    # through verbatim would misreport what actually happened.
+    logged = []
+    monkeypatch.setattr(
+        dictate,
+        "append_entry",
+        lambda raw, final, language, style, limit=None: logged.append(style),
+    )
+    app = _bare_app({"style": "professional", "history_enabled": True})
+
+    app._record_history(
+        "raw", "final", "en",
+        {"style": "casual", "history_enabled": True, "history_limit": 200},
+    )
+
+    assert logged == ["casual"]
+
+
+def test_resolve_effective_config_applies_the_frontmost_apps_profile(monkeypatch):
+    monkeypatch.setattr(appcontext, "frontmost_bundle_id", lambda: "com.apple.Terminal")
+    app = _bare_app({
+        "cleanup_enabled": True,
+        "app_profiles": [
+            {"bundle_ids": ["com.apple.Terminal"], "overrides": {"cleanup_enabled": False}}
+        ],
+    })
+
+    resolved = app._resolve_effective_config()
+
+    assert resolved["cleanup_enabled"] is False
+    assert app.config["cleanup_enabled"] is True  # stored config left untouched
+
+
+def test_resolve_effective_config_returns_stored_config_when_no_profiles(monkeypatch):
+    # The regression guard: with app_profiles empty, the pipeline must receive
+    # the stored config object itself, not a copy that merely equals it.
+    monkeypatch.setattr(appcontext, "frontmost_bundle_id", lambda: "com.apple.Terminal")
+    app = _bare_app({"cleanup_enabled": True, "app_profiles": []})
+
+    assert app._resolve_effective_config() is app.config
+
+
+def test_resolve_effective_config_falls_back_when_lookup_fails(monkeypatch):
+    monkeypatch.setattr(appcontext, "frontmost_bundle_id", lambda: None)
+    app = _bare_app({
+        "cleanup_enabled": True,
+        "app_profiles": [
+            {"bundle_ids": ["com.apple.Terminal"], "overrides": {"cleanup_enabled": False}}
+        ],
+    })
+
+    assert app._resolve_effective_config() is app.config

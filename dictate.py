@@ -26,6 +26,7 @@ from paste import copy_to_clipboard, paste_into_frontmost_app
 from preferences import PreferencesWindowController
 from transcribe import TranscribeError, transcribe
 from waveform import WaveformWindowController
+import appcontext
 import whisper_server
 
 IDLE_TITLE = "🎙"
@@ -172,11 +173,19 @@ class DictateApp(rumps.App):
     def _on_quit(self):
         whisper_server.stop()
 
-    def _clean_with_fallback(self, raw_text, language=None):
+    def _resolve_effective_config(self):
+        """Samples the frontmost app and returns the config this dictation
+        should run under. Returns self.config itself when no rule matches, so
+        the no-profiles path is unchanged rather than merely equivalent."""
+        bundle_id = appcontext.frontmost_bundle_id()
+        overrides = appcontext.resolve_profile(bundle_id, self.config)
+        return appcontext.effective_config(self.config, overrides)
+
+    def _clean_with_fallback(self, raw_text, config, language=None):
         final_text = raw_text
-        if self.config.get("cleanup_enabled", True):
+        if config.get("cleanup_enabled", True):
             try:
-                final_text = clean_transcript(raw_text, self.config, language=language)
+                final_text = clean_transcript(raw_text, config, language=language)
             except CleanupError as exc:
                 rumps.notification(
                     "Dictify", "Cleanup failed, using raw transcript", str(exc)
@@ -184,14 +193,17 @@ class DictateApp(rumps.App):
                 final_text = raw_text
         return final_text
 
-    def _record_history(self, raw_text, final_text, language):
-        if self.config.get("history_enabled", True):
+    def _record_history(self, raw_text, final_text, language, config):
+        # Logs the style that actually processed the text, not the global one -
+        # an entry claiming "professional" for text a Terminal rule passed
+        # through verbatim would misreport what happened.
+        if config.get("history_enabled", True):
             append_entry(
                 raw_text,
                 final_text,
                 language,
-                self.config.get("style", "default"),
-                limit=self.config.get("history_limit", 200),
+                config.get("style", "default"),
+                limit=config.get("history_limit", 200),
             )
 
     def _transcribe_file_menu(self, sender):
@@ -210,8 +222,10 @@ class DictateApp(rumps.App):
 
     def _run_file_transcription(self, input_path):
         try:
+            # File transcription gets no profile: the frontmost app here is
+            # Dictify's own open panel, which carries no useful intent.
             raw_text, language = transcribe_file(input_path, self.config)
-            final_text = self._clean_with_fallback(raw_text, language=language)
+            final_text = self._clean_with_fallback(raw_text, self.config, language=language)
             self._update_last_transcript_item(final_text)
 
             output_path = Path(input_path).with_suffix(".txt")
@@ -219,7 +233,7 @@ class DictateApp(rumps.App):
             subprocess.run(["open", str(output_path)])
             rumps.notification("Dictify", "File transcribed", f"Saved to {output_path.name}")
 
-            self._record_history(raw_text, final_text, language)
+            self._record_history(raw_text, final_text, language, self.config)
         except FileTranscribeError as exc:
             rumps.notification("Dictify", "File transcription failed", str(exc))
         except Exception as exc:
@@ -346,6 +360,11 @@ class DictateApp(rumps.App):
             play_sound(STOP_SOUND)
 
     def _start_recording(self):
+        # Sampled here rather than at paste time: the profile decides how
+        # cleanup.py processes the text, and cleanup runs before the paste.
+        # Press time is also where the intent lives - you press the hotkey
+        # while looking at the window you mean to type into.
+        self._pending_config = self._resolve_effective_config()
         self.state = "recording"
         self._play_start_sound()
         self.title = RECORDING_TITLE
@@ -375,15 +394,20 @@ class DictateApp(rumps.App):
         self.waveform.hide()
         self._stop_event.set()
         self._record_thread.join()
-        threading.Thread(target=self._process_recording, args=(self._samples,)).start()
+        # Passed as an argument rather than read off self inside the thread:
+        # a second dictation started mid-transcription would otherwise
+        # reprocess this one under the new dictation's profile.
+        threading.Thread(
+            target=self._process_recording, args=(self._samples, self._pending_config)
+        ).start()
 
-    def _process_recording(self, samples):
+    def _process_recording(self, samples, config):
         try:
             if samples is None or samples.size == 0 or is_silent(
                 samples,
                 SAMPLE_RATE,
-                peak_floor_dbfs=self.config["silence_peak_floor_dbfs"],
-                rise_db=self.config["silence_rise_db"],
+                peak_floor_dbfs=config["silence_peak_floor_dbfs"],
+                rise_db=config["silence_rise_db"],
             ):
                 return
 
@@ -392,7 +416,7 @@ class DictateApp(rumps.App):
                 save_wav(samples, SAMPLE_RATE, wav_path)
 
                 try:
-                    raw_text, language = transcribe(wav_path, self.config)
+                    raw_text, language = transcribe(wav_path, config)
                 except TranscribeError as exc:
                     rumps.notification("Dictify", "Transcription failed", str(exc))
                     return
@@ -400,14 +424,14 @@ class DictateApp(rumps.App):
             if not raw_text:
                 return
 
-            final_text = self._clean_with_fallback(raw_text, language=language)
+            final_text = self._clean_with_fallback(raw_text, config, language=language)
 
             self._update_last_transcript_item(final_text)
 
             copy_to_clipboard(final_text)
             paste_into_frontmost_app()
 
-            self._record_history(raw_text, final_text, language)
+            self._record_history(raw_text, final_text, language, config)
         except Exception as exc:
             rumps.notification("Dictify", "Dictation failed", str(exc))
         finally:
