@@ -78,6 +78,68 @@ def _bare_app(config=None):
     return app
 
 
+class _FakeHotkeyListener:
+    created = []
+
+    def __init__(self, combo, on_activate=None, on_deactivate=None, mode="toggle"):
+        self.combo = combo
+        self.on_activate = on_activate
+        self.start_calls = 0
+        self.stop_calls = 0
+        _FakeHotkeyListener.created.append(self)
+
+    def start(self):
+        self.start_calls += 1
+
+    def stop(self):
+        self.stop_calls += 1
+
+
+def test_start_cancel_listeners_registers_derived_combos(monkeypatch):
+    monkeypatch.setattr(dictate, "HotkeyListener", _FakeHotkeyListener)
+    app = _bare_app({"hotkey": "<ctrl>+<alt>+<cmd>+<d>"})
+    app._cancel_listeners = []
+
+    app._start_cancel_listeners()
+
+    combos = {listener.combo for listener in app._cancel_listeners}
+    assert combos == set(dictate._cancel_combos("<ctrl>+<alt>+<cmd>+<d>"))
+    assert all(listener.start_calls == 1 for listener in app._cancel_listeners)
+    assert all(
+        listener.on_activate == app._cancel_recording for listener in app._cancel_listeners
+    )
+
+
+def test_start_cancel_listeners_skips_a_combo_that_fails_to_register(monkeypatch):
+    class _OneFailsListener(_FakeHotkeyListener):
+        def start(self):
+            super().start()
+            if self.combo == "<escape>":
+                raise RuntimeError("RegisterEventHotKey failed with OSStatus -9878")
+
+    monkeypatch.setattr(dictate, "HotkeyListener", _OneFailsListener)
+    app = _bare_app({"hotkey": "<ctrl>+<alt>+<cmd>+<d>"})
+    app._cancel_listeners = []
+
+    app._start_cancel_listeners()  # must not raise
+
+    assert len(app._cancel_listeners) == 1
+    assert app._cancel_listeners[0].combo != "<escape>"
+
+
+def test_stop_cancel_listeners_stops_all_and_clears_list(monkeypatch):
+    monkeypatch.setattr(dictate, "HotkeyListener", _FakeHotkeyListener)
+    app = _bare_app({"hotkey": "<ctrl>+<alt>+<cmd>+<d>"})
+    app._cancel_listeners = []
+    app._start_cancel_listeners()
+    listeners = list(app._cancel_listeners)
+
+    app._stop_cancel_listeners()
+
+    assert app._cancel_listeners == []
+    assert all(listener.stop_calls == 1 for listener in listeners)
+
+
 def test_play_start_sound_plays_when_enabled(monkeypatch):
     played = []
     monkeypatch.setattr(dictate, "play_sound", lambda name: played.append(name))
@@ -116,6 +178,80 @@ def test_play_stop_sound_defaults_to_enabled_when_key_missing(monkeypatch):
     app._play_stop_sound()
 
     assert played == [dictate.STOP_SOUND]
+
+
+def test_play_cancel_sound_plays_when_enabled(monkeypatch):
+    played = []
+    monkeypatch.setattr(dictate, "play_sound", lambda name: played.append(name))
+    app = _bare_app({"sound_feedback_enabled": True})
+
+    app._play_cancel_sound()
+
+    assert played == [dictate.CANCEL_SOUND]
+
+
+def test_play_cancel_sound_silent_when_disabled(monkeypatch):
+    played = []
+    monkeypatch.setattr(dictate, "play_sound", lambda name: played.append(name))
+    app = _bare_app({"sound_feedback_enabled": False})
+
+    app._play_cancel_sound()
+
+    assert played == []
+
+
+def _bare_recording_app(sound_enabled=True):
+    app = _bare_app({"sound_feedback_enabled": sound_enabled})
+    app.state = "recording"
+    app._stop_event = MagicMock()
+    app._record_thread = MagicMock()
+    app._samples = "raw audio samples"
+    app._cancel_listeners = []
+    app.waveform = MagicMock()
+    return app
+
+
+def test_cancel_recording_returns_to_idle_and_discards_samples(monkeypatch):
+    played = []
+    monkeypatch.setattr(dictate, "play_sound", lambda name: played.append(name))
+    app = _bare_recording_app()
+
+    app._cancel_recording()
+
+    assert app.state == "idle"
+    assert app.title == dictate.IDLE_TITLE
+    assert app._samples is None
+    app.waveform.hide.assert_called_once()
+    app._stop_event.set.assert_called_once()
+    app._record_thread.join.assert_called_once()
+    assert played == [dictate.CANCEL_SOUND]
+
+
+def test_cancel_recording_noop_when_not_recording():
+    app = _bare_app({})
+    app.state = "idle"
+
+    app._cancel_recording()  # must not raise despite no _stop_event/_record_thread
+
+    assert app.state == "idle"
+
+
+def test_cancel_recording_calls_neither_transcription_nor_paste_pipeline(monkeypatch):
+    calls = []
+    monkeypatch.setattr(dictate, "transcribe", lambda *a, **kw: calls.append("transcribe"))
+    monkeypatch.setattr(
+        dictate, "clean_transcript", lambda *a, **kw: calls.append("clean_transcript")
+    )
+    monkeypatch.setattr(
+        dictate, "paste_into_frontmost_app", lambda *a, **kw: calls.append("paste")
+    )
+    monkeypatch.setattr(dictate, "append_entry", lambda *a, **kw: calls.append("append_entry"))
+    monkeypatch.setattr(dictate, "play_sound", lambda name: None)
+    app = _bare_recording_app()
+
+    app._cancel_recording()
+
+    assert calls == []
 
 
 def _bare_app_with_last_transcript_item():

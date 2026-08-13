@@ -18,7 +18,7 @@ from AppKit import (
 from audio import is_silent, record, save_wav
 from cleanup import CleanupError, clean_transcript
 from config import DEFAULT_CONFIG, load_config, save_config
-from feedback import START_SOUND, STOP_SOUND, play_sound
+from feedback import CANCEL_SOUND, START_SOUND, STOP_SOUND, play_sound
 from filetranscribe import FileTranscribeError, transcribe_file
 from history import append_entry, clear_history, load_history
 from hotkey import HotkeyListener
@@ -353,6 +353,28 @@ class DictateApp(rumps.App):
             self.hotkey.stop()
         self._start_hotkey_listener()
 
+    def _start_cancel_listeners(self):
+        record_combo = self.config.get("hotkey", DEFAULT_CONFIG["hotkey"])
+        for combo in _cancel_combos(record_combo):
+            listener = HotkeyListener(combo, on_activate=self._cancel_recording)
+            try:
+                listener.start()
+            except RuntimeError as exc:
+                # Escape may already be claimed by another app. Recording
+                # is the core feature and must not be taken down by the
+                # cancel accessory failing to register.
+                print(
+                    f"Dictify: failed to register cancel hotkey {combo!r}: {exc}",
+                    file=sys.stderr,
+                )
+                continue
+            self._cancel_listeners.append(listener)
+
+    def _stop_cancel_listeners(self):
+        for listener in self._cancel_listeners:
+            listener.stop()
+        self._cancel_listeners = []
+
     def on_hotkey(self):
         if self.state == "idle":
             self._start_recording()
@@ -377,6 +399,23 @@ class DictateApp(rumps.App):
     def _play_stop_sound(self):
         if self.config.get("sound_feedback_enabled", True):
             play_sound(STOP_SOUND)
+
+    def _play_cancel_sound(self):
+        if self.config.get("sound_feedback_enabled", True):
+            play_sound(CANCEL_SOUND)
+
+    def _cancel_recording(self):
+        if self.state != "recording":
+            return
+        self.state = "cancelling"
+        self._stop_cancel_listeners()
+        self._play_cancel_sound()
+        self.waveform.hide()
+        self._stop_event.set()
+        self._record_thread.join()
+        self._samples = None
+        self.state = "idle"
+        self.title = IDLE_TITLE
 
     def _start_recording(self):
         # Sampled here rather than at paste time: the profile decides how
