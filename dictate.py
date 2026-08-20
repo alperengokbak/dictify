@@ -250,7 +250,7 @@ class DictateApp(rumps.App):
             self._update_last_transcript_item(final_text)
 
             output_path = Path(input_path).with_suffix(".txt")
-            output_path.write_text(final_text)
+            output_path.write_text(final_text, encoding="utf-8")
             subprocess.run(["open", str(output_path)])
             rumps.notification("Dictify", "File transcribed", f"Saved to {output_path.name}")
 
@@ -276,7 +276,7 @@ class DictateApp(rumps.App):
             lines.append("")
 
         history_view_path = Path(tempfile.gettempdir()) / "dictify-history.txt"
-        history_view_path.write_text("\n".join(lines))
+        history_view_path.write_text("\n".join(lines), encoding="utf-8")
         subprocess.run(["open", str(history_view_path)])
 
     def _clear_history(self, sender):

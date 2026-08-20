@@ -49,7 +49,7 @@ class TranscribeError(Exception):
 
 
 def _parse_whisper_json(json_path: str) -> tuple[str, str]:
-    with open(json_path) as f:
+    with open(json_path, encoding="utf-8") as f:
         data = json.load(f)
     segments = data.get("transcription", [])
     text = _join_segment_text(segments)

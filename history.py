@@ -17,7 +17,7 @@ def append_entry(
         "final_text": final_text,
     }
     HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(HISTORY_PATH, "a") as f:
+    with open(HISTORY_PATH, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
     _trim_to_limit(limit)
 
@@ -26,7 +26,7 @@ def _trim_to_limit(limit: int) -> None:
     entries = load_history()
     if len(entries) > limit:
         trimmed = entries[-limit:]
-        with open(HISTORY_PATH, "w") as f:
+        with open(HISTORY_PATH, "w", encoding="utf-8") as f:
             for entry in trimmed:
                 f.write(json.dumps(entry) + "\n")
 
@@ -35,7 +35,7 @@ def load_history() -> list[dict]:
     if not HISTORY_PATH.exists():
         return []
     entries = []
-    with open(HISTORY_PATH) as f:
+    with open(HISTORY_PATH, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
