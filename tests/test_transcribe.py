@@ -182,14 +182,18 @@ def test_transcribe_via_server_joins_segments_instead_of_using_raw_text_field(tm
             str(wav_path), "http://127.0.0.1:8090", CONFIG
         )
     assert "\n" not in text
+    # The second segment has no leading space: Whisper split mid-word, so
+    # it is glued back on ("speech-to-text"), not space-joined.
     assert text == (
-        "Hi, this is a test recording to measure how long speech-to- "
+        "Hi, this is a test recording to measure how long speech-to-"
         "text transcription takes on this machine, "
         "so we can figure out where the time is going and reduce it."
     )
 
 
 def test_transcribe_via_server_passes_through_unknown_language_lowercased(tmp_path):
+    # An explicitly chosen language is trusted as-is; only "auto" detections
+    # are narrowed to English/Turkish (see the language-resolution tests).
     wav_path = tmp_path / "some.wav"
     wav_path.write_bytes(b"fake wav data")
     with patch(
@@ -199,7 +203,7 @@ def test_transcribe_via_server_passes_through_unknown_language_lowercased(tmp_pa
         ),
     ):
         _text, language = transcribe._transcribe_via_server(
-            str(wav_path), "http://127.0.0.1:8090", CONFIG
+            str(wav_path), "http://127.0.0.1:8090", dict(CONFIG, language="fr")
         )
     assert language == "french"
 
@@ -567,3 +571,180 @@ def test_transcribe_keeps_parentheses_that_are_part_of_real_speech(tmp_path):
             str(wav_path), "http://127.0.0.1:8090", CONFIG
         )
     assert text == "I installed English (UK) and English (US)."
+
+
+# --- Auto-detect narrowed to English/Turkish (2026-09-22) -------------------
+# Observed live in history.jsonl on 2026-09-21: short clips under
+# language "auto" came back as Czech ("Sáv, takže krede.") and English
+# speech was tagged Turkish. Reproduced with `say`: a 0.45 s "Evet." is
+# detected as English at p=0.66 and transcribed as "Amidst.".
+
+
+@pytest.fixture(autouse=True)
+def _reset_remembered_language():
+    transcribe._last_confident_language = None
+    yield
+    transcribe._last_confident_language = None
+
+
+def _server_payload(text, language, probability=None, probabilities=None):
+    payload = {"text": text, "language": language, "segments": [{"text": text}]}
+    if probability is not None:
+        payload["detected_language_probability"] = probability
+    if probabilities is not None:
+        payload["language_probabilities"] = probabilities
+    return payload
+
+
+def _run_server(tmp_path, responses, config=CONFIG, duration_secs=5):
+    wav_path = tmp_path / "clip.wav"
+    _write_wav(wav_path, duration_secs=duration_secs)
+    with patch(
+        "transcribe.requests.post",
+        side_effect=[_fake_post_response(r) for r in responses],
+    ) as mock_post:
+        result = transcribe._transcribe_via_server(
+            str(wav_path), "http://127.0.0.1:8090", config
+        )
+    return result, [c.kwargs["data"] for c in mock_post.call_args_list]
+
+
+def test_confident_turkish_detection_is_accepted_without_a_rerun(tmp_path):
+    (text, language), sent = _run_server(
+        tmp_path, [_server_payload("Bunu bir daha dinleyelim.", "turkish", 0.99)]
+    )
+    assert (text, language) == ("Bunu bir daha dinleyelim.", "tr")
+    assert len(sent) == 1
+
+
+def test_detection_outside_english_and_turkish_is_rerun_in_the_likelier_of_the_two(tmp_path):
+    (text, language), sent = _run_server(
+        tmp_path,
+        [
+            _server_payload("Sáv, takže krede.", "czech", 0.4,
+                            {"cs": 0.4, "tr": 0.3, "en": 0.1}),
+            _server_payload("Tamam, teşekkürler.", "turkish"),
+        ],
+    )
+    assert (text, language) == ("Tamam, teşekkürler.", "tr")
+    assert sent[1]["language"] == "tr"
+
+
+def test_low_confidence_detection_falls_back_to_the_last_confidently_spoken_language(tmp_path):
+    _run_server(tmp_path, [_server_payload("Yarın okula gideceğim.", "turkish", 0.99)])
+    (text, language), sent = _run_server(
+        tmp_path,
+        [
+            _server_payload("Amidst.", "english", 0.66, {"en": 0.66, "tr": 0.01}),
+            _server_payload("Evet.", "turkish"),
+        ],
+    )
+    assert (text, language) == ("Evet.", "tr")
+    assert sent[1]["language"] == "tr"
+
+
+def test_low_confidence_with_no_history_uses_the_likelier_of_english_and_turkish(tmp_path):
+    (_text, language), sent = _run_server(
+        tmp_path,
+        [
+            _server_payload("Okay.", "english", 0.7, {"en": 0.7, "tr": 0.05}),
+            _server_payload("Okay.", "english"),
+        ],
+    )
+    assert language == "en"
+    assert sent[1]["language"] == "en"
+
+
+def test_an_explicitly_chosen_language_is_never_rerun(tmp_path):
+    (_text, language), sent = _run_server(
+        tmp_path,
+        [_server_payload("Evet.", "turkish", 0.3)],
+        config=dict(CONFIG, language="tr"),
+    )
+    assert language == "tr"
+    assert len(sent) == 1
+
+
+# --- Glossary prompt leaking into short clips (2026-09-22) -----------------
+# Reproduced: a 1.7 s "Tamam, teşekkürler." with the glossary as the prompt
+# came back as "Code, Xcode, SwiftUI, Alperen Gökbak, DeepL, Arc".
+
+GLOSSARY_CONFIG = dict(CONFIG, glossary=["Claude Code", "Xcode", "SwiftUI", "Alperen Gökbak"])
+
+
+def test_glossary_prompt_is_skipped_for_clips_under_two_seconds(tmp_path):
+    _result, sent = _run_server(
+        tmp_path, [_server_payload("Tamam.", "turkish", 0.95)],
+        config=GLOSSARY_CONFIG, duration_secs=1.7,
+    )
+    assert "prompt" not in sent[0]
+
+
+def test_glossary_prompt_is_kept_for_clips_of_two_seconds_or_more(tmp_path):
+    _result, sent = _run_server(
+        tmp_path, [_server_payload("Open Xcode.", "english", 0.95)],
+        config=GLOSSARY_CONFIG, duration_secs=2.5,
+    )
+    assert "Xcode" in sent[0]["prompt"]
+
+
+def test_subprocess_path_skips_the_glossary_prompt_for_short_clips(tmp_path):
+    wav_path = tmp_path / "short.wav"
+    _write_wav(wav_path, duration_secs=1.0)
+    captured = []
+    fake_run = _fake_run_capturing_cmd(captured, _write_minimal_output)
+    with patch("transcribe.subprocess.run", side_effect=fake_run):
+        transcribe._transcribe_via_subprocess(str(wav_path), GLOSSARY_CONFIG)
+    assert "--prompt" not in captured[0]
+
+
+def test_output_that_only_echoes_the_glossary_is_rerun_without_the_prompt(tmp_path):
+    (text, _language), sent = _run_server(
+        tmp_path,
+        [
+            _server_payload("Code, Xcode, SwiftUI, Alperen Gökbak", "english", 0.95),
+            _server_payload("Please open the project.", "english", 0.95),
+        ],
+        config=GLOSSARY_CONFIG,
+    )
+    assert text == "Please open the project."
+    assert "prompt" in sent[0]
+    assert "prompt" not in sent[1]
+
+
+def test_a_single_dictated_glossary_word_is_kept(tmp_path):
+    (text, _language), sent = _run_server(
+        tmp_path, [_server_payload("Xcode.", "english", 0.95)],
+        config=GLOSSARY_CONFIG,
+    )
+    assert text == "Xcode."
+    assert len(sent) == 1
+
+
+# --- Mid-word segment splits (2026-09-22) ----------------------------------
+# Whisper marks a segment that starts a new word with a leading space; a
+# segment WITHOUT one continues the previous word. Space-joining every
+# segment produced "dinley elim" live (history.jsonl, 2026-09-21) and
+# "uğ rayacağım" when reproduced.
+
+
+def test_a_segment_without_a_leading_space_continues_the_previous_word(tmp_path):
+    wav_path = tmp_path / "clip.wav"
+    _write_wav(wav_path, duration_secs=5)
+    payload = {
+        "language": "turkish",
+        "detected_language_probability": 0.99,
+        "segments": [
+            {"text": " Yarın sabah okula gideceğim ve dersten sonra kütüphaneye uğ"},
+            {"text": "rayacağım."},
+            {"text": " Sonra eve döneceğim."},
+        ],
+    }
+    with patch("transcribe.requests.post", return_value=_fake_post_response(payload)):
+        text, _language = transcribe._transcribe_via_server(
+            str(wav_path), "http://127.0.0.1:8090", CONFIG
+        )
+    assert text == (
+        "Yarın sabah okula gideceğim ve dersten sonra kütüphaneye uğrayacağım. "
+        "Sonra eve döneceğim."
+    )
